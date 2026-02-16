@@ -1,0 +1,18 @@
+---
+description: AI Agent development patterns
+alwaysApply: true
+---
+
+- AI agent tools must follow OpenAI function-calling schema
+- Each tool must have: name, description, parameters (JSON Schema)
+- Tool responses must include success/failure status and the affected object IDs
+- AI commands execute sequentially — no parallel tool calls
+- getBoardState() must return a SCOPED view, not the entire board:
+  - For creation commands: return only frame/container context near target coordinates
+  - For manipulation commands: return only the objects matching the query
+  - For layout commands: return only the objects within the relevant area or selection
+  - Hard cap: never send more than 50 objects in a single getBoardState() response
+  - Include a summary line: "{totalObjects} total objects on board, {returnedCount} included in context"
+- All AI-generated board changes must write to the Yjs shared document (same sync path as manual edits)
+- AI responses must complete in <2 seconds for single-step commands
+- System prompt must constrain the agent to board manipulation only — reject off-topic requests

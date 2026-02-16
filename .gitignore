@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env
+.env.local
+.env.production
+coverage/
+dist/
+*.log
+.vercel/
+.supabase/

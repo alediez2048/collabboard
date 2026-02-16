@@ -1,0 +1,21 @@
+---
+description: Test-Driven Development methodology
+alwaysApply: true
+---
+
+Before implementing any feature:
+1. Write the test file first (Vitest for unit and integration)
+2. Confirm the test fails as expected
+3. Implement the minimum code to pass the test
+4. Refactor only after tests pass
+
+For WebSocket/real-time features:
+- Write integration tests that simulate 2+ concurrent Yjs documents
+- Test disconnect/reconnect by destroying and recreating the WebSocket provider
+- Test conflict resolution by applying concurrent updates to the same Yjs map key
+- Verify persistence by snapshotting Yjs state, clearing memory, and restoring from snapshot
+
+For canvas operations:
+- Test object creation returns correct properties from the Yjs shared map
+- Test state persistence after simulated refresh (reload Yjs doc from snapshot)
+- Test coordinate transforms for pan/zoom

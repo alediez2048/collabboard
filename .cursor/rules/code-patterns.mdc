@@ -1,0 +1,19 @@
+---
+description: Code patterns and conventions
+alwaysApply: true
+---
+
+- All API routes go in /app/api/
+- All canvas components go in /components/board/
+- All real-time logic goes in /lib/realtime/
+- All AI agent logic goes in /lib/ai-agent/
+- All types go in /types/
+- Single Zustand store in /stores/ui-store.ts for local UI state (selected tool, zoom, pan)
+- Yjs shared document is the single source of truth for board objects — never duplicate into Zustand
+- Every function must have TypeScript return types
+- No `any` types — use `unknown` with type guards
+- Error handling: always use try/catch with typed errors
+- Console.log only in development — use structured logging for production
+- WebSocket messages for cursors must follow a typed event schema
+- All board objects must have: id, type, x, y, width, height, createdBy, updatedAt
+- Cursor position events must be throttled to 20-30Hz on the sender side

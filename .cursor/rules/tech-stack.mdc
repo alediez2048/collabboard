@@ -1,0 +1,18 @@
+---
+description: Enforce project tech stack versions
+alwaysApply: true
+---
+
+- Framework: Next.js 15 (App Router)
+- Language: TypeScript (strict mode)
+- Canvas: Konva.js + react-konva
+- Real-time sync: Yjs (CRDT) + y-websocket for board state
+- Real-time transport: Custom WebSocket server (Socket.io + y-websocket provider)
+- Ephemeral sync: Socket.io broadcast for cursor positions (not persisted)
+- State: Zustand for local UI state only, Yjs shared document for board objects
+- Auth: Supabase Auth (email/password + magic link)
+- Database: Supabase PostgreSQL (persistence layer — NOT the real-time transport)
+- Styling: Tailwind CSS v4
+- Testing: Vitest for unit/integration
+- Deployment: Vercel (frontend) + Railway (WebSocket server) + Supabase (DB/Auth)
+- AI: OpenAI GPT-4o-mini with function calling
