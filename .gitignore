@@ -37,6 +37,11 @@ yarn-error.log*
 # Supabase local development
 /supabase/
 
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # vercel
 .vercel
 
