@@ -32,6 +32,18 @@ Real-time collaborative whiteboard with AI agent. Built with Next.js 15, Konva.j
 - `agents.md` — coding agent non-negotiables
 - `TICKETS.md` — current progress tracker
 
+## Docs / References
+- **Konva.js:** https://konvajs.org/docs/
+- **Yjs CRDT:** https://docs.yjs.dev/
+- **y-websocket:** https://github.com/yjs/y-websocket
+- **Socket.io:** https://socket.io/docs/v4/
+- **Supabase Auth:** https://supabase.com/docs/guides/auth
+- **Supabase JS Client:** https://supabase.com/docs/reference/javascript/introduction
+- **OpenAI Function Calling:** https://platform.openai.com/docs/guides/function-calling
+- **Anthropic Tool Use:** https://docs.anthropic.com/en/docs/build-with-claude/tool-use
+- **Zustand:** https://docs.pmnd.rs/zustand/getting-started/introduction
+- **Vitest:** https://vitest.dev/guide/
+
 ## Rules
 - Board objects ONLY in Yjs Y.Map — never Zustand, never direct Supabase writes
 - AI agent tool execution writes to Yjs doc — same path as manual edits
