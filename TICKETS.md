@@ -2,7 +2,7 @@
 
 ## MVP Sprint (Due: Tue 11:59 PM CT)
 
-- [ ] **TICKET-01** — Project Scaffold + Auth (~2 hrs)
+- [x] **TICKET-01** — Project Scaffold + Auth (~2 hrs) ✅ Completed Feb 16
 - [ ] **TICKET-02** — Konva Canvas with Pan/Zoom (~1.5 hrs)
 - [ ] **TICKET-03** — y-websocket Server + Yjs Provider (~3 hrs)
 - [ ] **TICKET-04** — Sticky Note CRUD via Yjs (~2.5 hrs)
@@ -27,3 +27,12 @@
 ## Notes
 
 _Update this file after completing each ticket. Add a one-line note if you deviated from the PRD._
+
+### TICKET-01 (Completed Feb 16, 2026)
+- ✅ All acceptance criteria met
+- ✅ Deployed to Vercel: https://collabboard-gauntlet.vercel.app
+- ✅ GitHub: https://github.com/alediez2048/Gauntlet-Assignment-1
+- Added: Supabase CLI setup for database management
+- Added: Email confirmation disabled programmatically via CLI
+- Fixed: Linter warning in middleware.ts (unused options parameter)
+- Deviation: Renamed directory to remove spaces (Vercel requirement)
