@@ -1,36 +1,178 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CollabBoard
 
-## Getting Started
+Real-time collaborative whiteboard with AI agent, built with Next.js 15, Konva.js, Yjs, Socket.io, and Supabase.
 
-First, run the development server:
+**Live Demo:** https://collabboard-gauntlet.vercel.app
+
+---
+
+## Features
+
+- ✅ **Authentication** - Email/password signup and login (Supabase Auth)
+- ✅ **Board Management** - Create, list, and navigate boards
+- ✅ **Real-time Sync** - Multiplayer collaboration via Yjs CRDT
+- 🚧 **Canvas** - Infinite pan/zoom canvas (TICKET-02)
+- 🚧 **Sticky Notes** - Create, edit, move, delete notes (TICKET-04)
+- 🚧 **Multiplayer Cursors** - See other users' cursors in real-time (TICKET-05)
+- 🚧 **AI Agent** - Natural language board manipulation (TICKET-11+)
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 24+ (via nvm recommended)
+- npm 11+
+- Supabase account
+
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/alediez2048/Gauntlet-Assignment-1.git
+cd Gauntlet-Assignment-1
+
+# Install dependencies
+npm install
+
+# Copy environment variables
+cp .env.example .env.local
+
+# Edit .env.local with your Supabase credentials
+# NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Available Commands
 
-## Learn More
+```bash
+# Development
+npm run dev              # Start Next.js dev server
+npm run build            # Build for production
+npm start                # Start production server
 
-To learn more about Next.js, take a look at the following resources:
+# Testing
+npm run test:e2e         # Run E2E tests (Playwright)
+npm run test:e2e:ui      # Interactive E2E test mode
+npm run test:e2e:headed  # Watch browser during E2E tests
+npm test                 # Run unit/integration tests (Vitest)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Code Quality
+npm run lint             # Run ESLint
+npm run lint -- --fix    # Auto-fix linting issues
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+├── app/                 # Next.js 15 App Router
+│   ├── api/            # API routes (future)
+│   ├── board/[id]/     # Board page (canvas)
+│   ├── login/          # Authentication page
+│   └── page.tsx        # Home (board list)
+├── components/          # React components
+│   ├── ui/             # Reusable UI components
+│   └── board/          # Board-specific components
+├── lib/                 # Shared logic
+│   ├── supabase/       # Supabase client utilities
+│   └── yjs/            # Yjs/CRDT setup (future)
+├── stores/              # Zustand state management
+├── tests/
+│   └── e2e/            # Playwright E2E tests
+├── types/               # TypeScript type definitions
+└── public/              # Static assets
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 15 (App Router), React 19, TypeScript |
+| **Canvas** | Konva.js + react-konva |
+| **Styling** | Tailwind CSS v4 |
+| **Real-time** | Yjs (CRDT) + y-websocket, Socket.io |
+| **Auth** | Supabase Auth (JWT sessions) |
+| **Database** | Supabase PostgreSQL |
+| **State** | Zustand (UI only), Yjs (board objects) |
+| **Testing** | Playwright (E2E), Vitest (unit/integration) |
+| **Deployment** | Vercel (frontend), Railway (WebSocket server - future) |
+| **AI** | OpenAI GPT-4o-mini (future) |
+
+---
+
+## Documentation
+
+- **[PRD.md](PRD.md)** - Product requirements and ticket breakdown
+- **[TESTS.md](TESTS.md)** - Comprehensive testing guide and strategy
+- **[DEV-LOG.md](DEV-LOG.md)** - Development log (updated after each ticket)
+- **[TICKETS.md](TICKETS.md)** - Current progress tracker
+- **[CLAUDE.md](CLAUDE.md)** - Quick reference for AI agents
+- **[system-design.md](system-design.md)** - Architecture and data flow
+- **[agents.md](agents.md)** - Coding agent guidelines
+
+---
+
+## Testing
+
+This project follows a comprehensive testing strategy:
+
+- **E2E Tests** (Playwright) - User flows, multiplayer sync
+- **Integration Tests** (Vitest) - Server logic, Yjs sync
+- **Unit Tests** (Vitest) - Component logic, utilities
+- **Manual Testing** - UX validation, performance
+
+See **[TESTS.md](TESTS.md)** for detailed testing documentation including:
+- Per-ticket testing checklists
+- Multi-browser testing setup
+- Debugging guides
+- CI/CD integration plans
+
+---
+
+## Development Workflow
+
+1. **Read ticket** in PRD.md
+2. **Create feature branch** (e.g., `feat/canvas`)
+3. **Implement feature** following TDD principles
+4. **Run tests** (lint, build, E2E, manual)
+5. **Update documentation** (DEV-LOG.md, TICKETS.md)
+6. **Commit and push** with conventional commits
+7. **Deploy** via Vercel (auto-deploy from `main`)
+
+---
+
+## Contributing
+
+This is a submission for the Gauntlet AI assignment. Not accepting external contributions at this time.
+
+---
+
+## License
+
+Private project for Gauntlet AI interview process.
+
+---
+
+## Links
+
+- **Live App:** https://collabboard-gauntlet.vercel.app
+- **GitHub:** https://github.com/alediez2048/Gauntlet-Assignment-1
+- **Supabase Dashboard:** https://supabase.com/dashboard/project/ifagtpezakzdztufnyze
+
+---
+
+**Built by:** JAD  
+**Sprint:** Feb 16-23, 2026  
+**Assignment:** Gauntlet AI - CollabBoard

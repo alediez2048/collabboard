@@ -5,7 +5,9 @@ Real-time collaborative whiteboard with AI agent. Built with Next.js 15, Konva.j
 ## Commands
 - Build: `npm run build`
 - Dev: `npm run dev`
-- Test: `npx vitest run`
+- Test (Unit): `npx vitest run`
+- Test (E2E): `npm run test:e2e`
+- Test (E2E UI): `npm run test:e2e:ui`
 - Lint: `npx eslint . --fix`
 - Format: `npx prettier --write .`
 - Server (WS): `cd server && npm run dev`
@@ -31,6 +33,8 @@ Real-time collaborative whiteboard with AI agent. Built with Next.js 15, Konva.j
 - `PRD.md` — ticket breakdown and acceptance criteria
 - `agents.md` — coding agent non-negotiables
 - `TICKETS.md` — current progress tracker
+- `TESTS.md` — comprehensive testing guide and strategy
+- `DEV-LOG.md` — development log updated after each ticket
 
 ## Docs / References
 - **Konva.js:** https://konvajs.org/docs/
