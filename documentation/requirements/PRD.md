@@ -322,6 +322,11 @@ All 9 items must be working and deployed:
 - Tool execution in `lib/ai-agent/executor.ts` writes results to the Yjs doc via the server
 - AI-generated changes appear in real-time for all connected users
 - Show a loading indicator while AI is processing
+- Integrate LangSmith or Langfuse for AI observability:
+  - Add tracing wrapper around all OpenAI API calls
+  - Configure env vars (API keys for chosen platform)
+  - Every AI command traced with: prompt, response, latency, tokens, cost
+  - Traces visible in LangSmith (smith.langchain.com) or Langfuse dashboard
 
 **Done when:**
 - [ ] User types "Add a yellow sticky note that says 'User Research'" → sticky note appears
@@ -331,6 +336,7 @@ All 9 items must be working and deployed:
 - [ ] AI changes appear for all connected users in real-time
 - [ ] Response time is <2 seconds for single-step commands
 - [ ] 6+ distinct command types work
+- [ ] AI calls appear in LangSmith/Langfuse dashboard with full traces (prompt, response, latency, tokens)
 
 **Cursor prompt seed:**
 > I've completed TICKET-01 through TICKET-10. The whiteboard has full multiplayer sync via Yjs. Now implement TICKET-11: the AI agent. Create an `AICommandBar.tsx` input component. Create the API route at `/api/ai/command/route.ts` that uses OpenAI GPT-4o-mini function calling. Define tools in `lib/ai-agent/tools.ts` following the schema in the assignment doc. Tool execution must write to the Yjs doc — not directly to the canvas or to Supabase. Implement `getBoardState()` in `lib/ai-agent/scoped-state.ts` with a 50-object cap. Refer to `@docs/OpenAI Function Calling`.
@@ -407,6 +413,7 @@ All 9 items must be working and deployed:
   - Strengths & limitations of AI coding agents for this project
   - Key learnings
 - Finalize AI Cost Analysis:
+  - Pull actual token usage and cost data from LangSmith/Langfuse traces
   - Actual dev spend (track OpenAI API usage, Cursor token consumption)
   - Production projections at 100 / 1,000 / 10,000 / 100,000 users (from pre-search, updated with real numbers)
 - Record 3-5 minute demo video:
@@ -422,15 +429,42 @@ All 9 items must be working and deployed:
 
 ---
 
-### TICKET-15: Final Polish + Social Post
-**Time budget:** 1.5 hours  
+### TICKET-15: Board Management + Final Polish + Social Post
+**Time budget:** 3 hours  
 **Dependencies:** TICKET-14  
-**Branch:** `main` (direct commits for polish)
+**Branch:** `feat/board-management`
 
 **Scope:**
-- UI polish: consistent colors, hover states, loading indicators, error messages
+
+**Board Management & Navigation (NEW):**
+- Inline board rename on board list page
+  - Click board name → editable input
+  - Update `boards.name` in Supabase
+  - Validation: non-empty, max 100 chars
+- Delete board functionality
+  - Delete icon/button per board in list
+  - Confirmation modal ("Are you sure? This cannot be undone.")
+  - DELETE cascade to `board_snapshots` table
+  - Remove from UI after successful deletion
+- Exit button in board view
+  - Top-left corner: "← Back to Boards" button
+  - Or navbar with board name + back arrow
+  - Navigate to board list page
+- Show current board name in board header/navbar
+  - Display board name (not just "Untitled Board")
+  - Load from Supabase `boards` table
+- Basic share functionality
+  - "Share" button in board view (top-right)
+  - Modal or popover with board URL
+  - "Copy Link" button (copies to clipboard)
+  - Toast notification: "Link copied!"
+
+**UI Polish (EXISTING):**
+- Consistent colors, hover states, loading indicators, error messages
 - Handle edge cases: empty board state, long text overflow on sticky notes, very small shapes
 - Verify deployed app is publicly accessible with auth
+
+**Final Delivery:**
 - Complete AI interview via portal
 - Post on LinkedIn or X:
   - Description of what was built
@@ -439,10 +473,18 @@ All 9 items must be working and deployed:
   - Tag @GauntletAI
 
 **Done when:**
+- [ ] User can rename any board from the list page
+- [ ] User can delete boards with confirmation
+- [ ] Board view has exit/back button that works
+- [ ] Current board name shown in header
+- [ ] Share button copies board URL to clipboard
 - [ ] Deployed app works end-to-end for a new user (signup → create board → add objects → see sync)
 - [ ] AI interview completed
 - [ ] Social post published
 - [ ] All submission deliverables uploaded to portal
+
+**Cursor prompt seed:**
+> I've completed TICKET-01 through TICKET-14. Now implement TICKET-15: board management and final polish. Add inline board rename (click to edit) on the board list page. Add delete board with confirmation modal. Add exit button in board view to navigate back. Show board name in header. Add share button that copies URL. Then polish UI (consistent colors, hover states, error handling). Complete AI interview and post on social media.
 
 ---
 
@@ -452,11 +494,13 @@ All 9 items must be working and deployed:
 |---|---|---|---|
 | **MVP Sprint** | 01–07 | ~13.5 hrs | Tue 11:59 PM CT |
 | **Feature Expansion** | 08–12 | ~12 hrs | Fri 11:59 PM CT |
-| **Polish + Docs** | 13–15 | ~5.5 hrs | Sun 10:59 PM CT |
-| **Buffer** | — | ~5 hrs | — |
+| **Polish + Docs** | 13–15 | ~7 hrs | Sun 10:59 PM CT |
+| **Buffer** | — | ~3.5 hrs | — |
 | **Total** | 15 tickets | ~36 hrs | — |
 
 The buffer is critical. Something will break — probably Yjs persistence or the AI agent's multi-step execution. Don't schedule yourself at 100% capacity.
+
+**Note:** TICKET-15 expanded from 1.5 hrs to 3 hrs to include board management features (rename, delete, navigation, share). This keeps all board-level UI improvements together in the final polish phase.
 
 ---
 
