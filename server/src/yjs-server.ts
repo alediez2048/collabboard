@@ -6,15 +6,18 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import { IncomingMessage } from 'http';
 import { verifySupabaseToken } from './auth';
+import { loadSnapshot, saveSnapshot, createDebouncedSave } from './persistence';
 
 // Message types
 const messageSync = 0;
 const messageAwareness = 1;
 
 // In-memory storage for Y.Docs (one per board)
-// In TICKET-07, we'll add persistence to Supabase
 const docs = new Map<string, Y.Doc>();
 const awarenessMap = new Map<string, awarenessProtocol.Awareness>();
+
+// Track connected clients per room to detect first-connect and last-disconnect
+const roomClients = new Map<string, Set<WebSocket>>();
 
 function getOrCreateDoc(roomName: string): Y.Doc {
   let doc = docs.get(roomName);
@@ -78,13 +81,30 @@ export function setupYjsServer(wss: WebSocketServer): void {
       const doc = getOrCreateDoc(roomName);
       const awareness = getOrCreateAwareness(roomName, doc);
 
+      // Track this client in the room
+      if (!roomClients.has(roomName)) {
+        roomClients.set(roomName, new Set());
+      }
+      const roomSet = roomClients.get(roomName)!;
+      const isFirstClient = roomSet.size === 0;
+      roomSet.add(ws);
+
+      // Load snapshot only for the first client (doc is still empty at this point)
+      if (isFirstClient) {
+        await loadSnapshot(roomName, doc);
+        console.log(`[Yjs] First client in room ${roomName} — snapshot loaded`);
+      }
+
+      // Wire up debounced snapshot save for this room
+      const debounceSave = createDebouncedSave(roomName, doc);
+
       // Track which awareness clientIds belong to this WebSocket connection so
       // we can explicitly remove them when the socket closes — without this,
       // dead clients linger in the awareness map until the 30-second heartbeat
       // timeout, making avatars take a long time to disappear.
       const connClientIds = new Set<number>();
 
-      // Send initial sync message
+      // Send initial sync message (after snapshot is loaded so client gets full state)
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, messageSync);
       syncProtocol.writeSyncStep1(encoder, doc);
@@ -143,7 +163,7 @@ export function setupYjsServer(wss: WebSocketServer): void {
         }
       });
 
-      // Handle updates to the doc
+      // Handle updates to the doc — relay to other clients and debounce snapshot save
       const updateHandler = (update: Uint8Array, origin: unknown) => {
         if (origin !== ws) {
           const encoder = encoding.createEncoder();
@@ -155,6 +175,9 @@ export function setupYjsServer(wss: WebSocketServer): void {
             ws.send(message);
           }
         }
+
+        // Debounce snapshot save on every update regardless of origin
+        debounceSave.debouncedSave();
       };
       doc.on('update', updateHandler);
 
@@ -205,6 +228,22 @@ export function setupYjsServer(wss: WebSocketServer): void {
           );
         }
 
+        // Remove this client from the room set
+        const currentRoomSet = roomClients.get(roomName);
+        if (currentRoomSet) {
+          currentRoomSet.delete(ws);
+
+          if (currentRoomSet.size === 0) {
+            // Last client — cancel the pending debounce and save a final snapshot immediately
+            debounceSave.cancel();
+            roomClients.delete(roomName);
+            saveSnapshot(roomName, doc).catch((err) => {
+              console.error(`[Yjs] Final snapshot save error for room ${roomName}:`, err);
+            });
+            console.log(`[Yjs] Last client left room ${roomName} — final snapshot saved`);
+          }
+        }
+
         console.log(
           `[Yjs] User ${user.email} disconnected from room: ${roomName}`
         );
@@ -216,7 +255,7 @@ export function setupYjsServer(wss: WebSocketServer): void {
   });
 }
 
-// Export for future persistence (TICKET-07)
+// Export for future use (e.g. AI agent, admin tooling)
 export function getDoc(roomName: string): Y.Doc | undefined {
   return docs.get(roomName);
 }

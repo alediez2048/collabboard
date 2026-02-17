@@ -15,10 +15,17 @@ export function PresenceBar({ provider, currentUserId }: PresenceBarProps) {
   useEffect(() => {
     const updatePresence = (): void => {
       const states = Array.from(provider.awareness.getStates().values());
-      const users = states
-        .map((state) => (state as { user?: AwarenessUser }).user)
-        .filter((user): user is AwarenessUser => !!user);
-      setOnlineUsers(users);
+      // Deduplicate by userId — a user with multiple tabs has one awareness entry
+      // per clientId (connection), all sharing the same userId. Using a Map keeps
+      // the last-seen entry and guarantees unique keys in the rendered list.
+      const userMap = new Map<string, AwarenessUser>();
+      for (const state of states) {
+        const user = (state as { user?: AwarenessUser }).user;
+        if (user) {
+          userMap.set(user.userId, user);
+        }
+      }
+      setOnlineUsers(Array.from(userMap.values()));
     };
 
     provider.awareness.on('change', updatePresence);
