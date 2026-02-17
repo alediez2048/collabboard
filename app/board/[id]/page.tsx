@@ -1,16 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
-import dynamic from 'next/dynamic';
-
-// Load Canvas only on client side to avoid hydration mismatch
-const Canvas = dynamic(() => import('@/components/board/Canvas').then((mod) => ({ default: mod.Canvas })), {
-  ssr: false,
-  loading: () => (
-    <div className="fixed inset-0 bg-gray-50 flex items-center justify-center">
-      <div className="text-gray-500">Loading canvas...</div>
-    </div>
-  ),
-});
+import { BoardCanvas } from '@/components/board/BoardCanvas';
 
 interface BoardPageProps {
   params: Promise<{
@@ -32,5 +22,5 @@ export default async function BoardPage({ params }: BoardPageProps) {
     notFound();
   }
 
-  return <Canvas boardId={board.id} />;
+  return <BoardCanvas boardId={board.id} />;
 }
