@@ -10,7 +10,10 @@ import { Socket } from 'socket.io-client';
 import { useUIStore } from '@/stores/ui-store';
 import { Grid } from './Grid';
 import { Toolbar } from './Toolbar';
-import { createBoardDoc } from '@/lib/yjs/board-doc';
+import { StickyNote } from './StickyNote';
+import { TextEditor } from './TextEditor';
+import { ColorPicker } from './ColorPicker';
+import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
 import { createYjsProvider } from '@/lib/yjs/provider';
 import { createCursorSocket } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
@@ -22,18 +25,25 @@ interface CanvasProps {
 export function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const { zoom, pan, setZoom, setPan } = useUIStore();
+  const { zoom, pan, setZoom, setPan, selectedTool, setSelectedTool } = useUIStore();
 
   // Yjs and Socket.io connection state
-  // Note: yDoc, provider, and socket will be used in TICKET-04 for rendering objects
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [yDoc, setYDoc] = useState<Y.Doc | null>(null);
+  // Provider and socket will be used in TICKET-05 for cursor sync
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [provider, setProvider] = useState<WebsocketProvider | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [socket, setSocket] = useState<Socket | null>(null);
   const [yjsConnected, setYjsConnected] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
+
+  // Board objects state (derived from Yjs Y.Map)
+  const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
+
+  // Selection and editing state
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   // Handle window resize
   useEffect(() => {
@@ -189,9 +199,180 @@ export function Canvas({ boardId }: CanvasProps) {
     };
   }, [boardId]);
 
+  // Observe Y.Map for changes and update React state
+  useEffect(() => {
+    if (!yDoc) return;
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+
+    const observer = (): void => {
+      const allObjects = getAllObjects(objects);
+      setBoardObjects(allObjects);
+      console.log('[Canvas] Board objects updated:', allObjects.length);
+    };
+
+    // Observe changes
+    objects.observe(observer);
+
+    // Initial load
+    observer();
+
+    return () => {
+      objects.unobserve(observer);
+    };
+  }, [yDoc]);
+
+  // Handle delete key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedObjectId && !editingObjectId) {
+        e.preventDefault();
+        if (yDoc) {
+          const objects = yDoc.getMap<BoardObject>('objects');
+          removeObject(objects, selectedObjectId);
+          setSelectedObjectId(null);
+          setShowColorPicker(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedObjectId, editingObjectId, yDoc]);
+
+  // Create sticky note on canvas click (when sticky tool is active)
+  const handleStageClick = async (e: KonvaEventObject<MouseEvent>): Promise<void> => {
+    const stage = stageRef.current;
+    if (!stage || !yDoc || selectedTool !== 'sticky') return;
+
+    // Only create if clicking on the stage itself (not on an object)
+    if (e.target !== stage) return;
+
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+
+    // Convert screen coordinates to canvas coordinates
+    const canvasX = (pointerPos.x - stage.x()) / stage.scaleX();
+    const canvasY = (pointerPos.y - stage.y()) / stage.scaleY();
+
+    // Get current user
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) return;
+
+    // Create new sticky note
+    const newNote: BoardObject = {
+      id: crypto.randomUUID(),
+      type: 'sticky_note',
+      x: canvasX,
+      y: canvasY,
+      width: 200,
+      height: 200,
+      rotation: 0,
+      zIndex: boardObjects.length + 1,
+      properties: {
+        text: '',
+        color: '#ffeb3b', // default yellow
+      },
+      createdBy: session.user.id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    addObject(objects, newNote);
+
+    // Switch back to select tool
+    setSelectedTool('select');
+    setSelectedObjectId(newNote.id);
+
+    console.log('[Canvas] Created sticky note:', newNote.id);
+  };
+
+  // Handle sticky note selection
+  const handleSelectNote = (id: string): void => {
+    setSelectedObjectId(id);
+    setShowColorPicker(true);
+  };
+
+  // Handle sticky note drag end (update position in Yjs)
+  const handleNoteDragEnd = (id: string, x: number, y: number): void => {
+    if (!yDoc) return;
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    updateObject(objects, id, { x, y });
+
+    console.log('[Canvas] Updated position:', id, { x, y });
+  };
+
+  // Handle double-click (enter text editing mode)
+  const handleDoubleClick = (id: string): void => {
+    setEditingObjectId(id);
+    setShowColorPicker(false);
+  };
+
+  // Handle text save
+  const handleTextSave = (text: string): void => {
+    if (!yDoc || !editingObjectId) return;
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    const object = objects.get(editingObjectId);
+
+    if (object) {
+      updateObject(objects, editingObjectId, {
+        properties: {
+          ...object.properties,
+          text,
+        },
+      });
+    }
+
+    console.log('[Canvas] Updated text:', editingObjectId, text);
+  };
+
+  // Handle color change
+  const handleColorChange = (color: string): void => {
+    if (!yDoc || !selectedObjectId) return;
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    const object = objects.get(selectedObjectId);
+
+    if (object) {
+      updateObject(objects, selectedObjectId, {
+        properties: {
+          ...object.properties,
+          color,
+        },
+      });
+    }
+
+    console.log('[Canvas] Updated color:', selectedObjectId, color);
+  };
+
+  // Deselect when clicking on stage
+  const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>): void => {
+    // If clicking on stage (not on an object)
+    if (e.target === e.target.getStage()) {
+      setSelectedObjectId(null);
+      setShowColorPicker(false);
+    }
+  };
+
   if (dimensions.width === 0 || dimensions.height === 0) {
     return null; // Avoid rendering with 0 dimensions
   }
+
+  // Get editing object details
+  const editingObject = editingObjectId
+    ? boardObjects.find((obj) => obj.id === editingObjectId)
+    : null;
+
+  // Get selected object for color picker
+  const selectedObject = selectedObjectId
+    ? boardObjects.find((obj) => obj.id === selectedObjectId)
+    : null;
 
   return (
     <div className="fixed inset-0 bg-gray-50">
@@ -238,6 +419,8 @@ export function Canvas({ boardId }: CanvasProps) {
         draggable
         onWheel={handleWheel}
         onDragEnd={handleDragEnd}
+        onClick={handleStageClick}
+        onMouseDown={handleStageMouseDown}
         x={pan.x}
         y={pan.y}
         scaleX={zoom}
@@ -254,9 +437,57 @@ export function Canvas({ boardId }: CanvasProps) {
 
         {/* Main content layer */}
         <Layer>
-          {/* Board objects will be rendered here in future tickets */}
+          {/* Render sticky notes */}
+          {boardObjects
+            .filter((obj) => obj.type === 'sticky_note')
+            .map((obj) => (
+              <StickyNote
+                key={obj.id}
+                id={obj.id}
+                x={obj.x}
+                y={obj.y}
+                width={obj.width}
+                height={obj.height}
+                text={String(obj.properties.text || '')}
+                color={String(obj.properties.color || '#ffeb3b')}
+                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                onSelect={handleSelectNote}
+                onDragEnd={handleNoteDragEnd}
+                onDoubleClick={handleDoubleClick}
+              />
+            ))}
         </Layer>
       </Stage>
+
+      {/* Text Editor Overlay */}
+      {editingObject && stageRef.current && (
+        <TextEditor
+          x={editingObject.x}
+          y={editingObject.y}
+          width={editingObject.width}
+          height={editingObject.height}
+          initialText={String(editingObject.properties.text || '')}
+          stage={stageRef.current}
+          onSave={handleTextSave}
+          onClose={() => setEditingObjectId(null)}
+        />
+      )}
+
+      {/* Color Picker */}
+      {showColorPicker && selectedObject && selectedObject.type === 'sticky_note' && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 20,
+            top: 100,
+          }}
+        >
+          <ColorPicker
+            selectedColor={String(selectedObject.properties.color || '#ffeb3b')}
+            onColorSelect={handleColorChange}
+          />
+        </div>
+      )}
 
       {/* Hidden board ID for testing */}
       <div className="sr-only" data-testid="board-id">
