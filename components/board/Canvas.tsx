@@ -13,11 +13,12 @@ import { Toolbar } from './Toolbar';
 import { StickyNote } from './StickyNote';
 import { TextEditor } from './TextEditor';
 import { ColorPicker } from './ColorPicker';
-import { RemoteCursor } from './RemoteCursor';
+import { RemoteCursorsLayer } from './RemoteCursorsLayer';
 import { ShareButton } from './ShareButton';
+import { PresenceBar } from './PresenceBar';
 import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
 import { createYjsProvider } from '@/lib/yjs/provider';
-import { createCursorSocket, emitCursorMove, onCursorMove, type CursorMoveEvent } from '@/lib/sync/cursor-socket';
+import { createCursorSocket, emitCursorMove } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
 
 interface CanvasProps {
@@ -51,10 +52,7 @@ export function Canvas({ boardId }: CanvasProps) {
 
   // Yjs and Socket.io connection state
   const [yDoc, setYDoc] = useState<Y.Doc | null>(null);
-  // Provider and socket will be used in TICKET-05 for cursor sync
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [provider, setProvider] = useState<WebsocketProvider | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [socket, setSocket] = useState<Socket | null>(null);
   const [yjsConnected, setYjsConnected] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -67,8 +65,6 @@ export function Canvas({ boardId }: CanvasProps) {
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
-  // Cursor state
-  const [remoteCursors, setRemoteCursors] = useState<Map<string, CursorMoveEvent & { timestamp: number }>>(new Map());
   const [userColor, setUserColor] = useState<string>('#3b82f6');
   // Store session info in refs so cursor emission never needs async calls
   const sessionUserIdRef = useRef<string>('');
@@ -299,53 +295,37 @@ export function Canvas({ boardId }: CanvasProps) {
     initSession();
   }, []);
 
-  // Listen for remote cursor movements (synchronous — userId cached in ref)
+  // Publish presence to Yjs awareness once provider + session identity are ready
   useEffect(() => {
-    if (!socket) return;
+    if (!provider || !sessionUserIdRef.current) return;
 
-    const handleRemoteCursor = (data: CursorMoveEvent): void => {
-      // Don't show own cursor
-      if (sessionUserIdRef.current && data.userId === sessionUserIdRef.current) return;
+    provider.awareness.setLocalStateField('user', {
+      userId: sessionUserIdRef.current,
+      userName: sessionUserNameRef.current,
+      color: userColor,
+      isOnline: true,
+    });
 
-      setRemoteCursors((prev) => {
-        const next = new Map(prev);
-        next.set(data.userId, { ...data, timestamp: Date.now() });
-        return next;
-      });
+    console.log('[Canvas] Awareness state set for user:', sessionUserIdRef.current);
+
+    // Belt-and-suspenders: clear awareness state immediately on tab/window close
+    // so the server removes the avatar instantly rather than waiting for the
+    // 30-second heartbeat timeout. The server fix handles the primary cleanup;
+    // this covers the case where the browser gets to run beforeunload.
+    const handleBeforeUnload = (): void => {
+      provider.awareness.setLocalState(null);
     };
-
-    onCursorMove(socket, handleRemoteCursor);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
-      socket.off('cursor:move', handleRemoteCursor);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Also clear on React unmount (e.g. navigating away within the SPA)
+      provider.awareness.setLocalState(null);
     };
-  }, [socket]);
+  }, [provider, userColor]); // re-run when provider initializes or color resolves
 
-  // Cleanup stale cursors (remove if no update for 5 seconds)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      setRemoteCursors((prev) => {
-        const next = new Map(prev);
-        let removed = 0;
-        
-        for (const [userId, cursor] of next.entries()) {
-          if (now - cursor.timestamp > 5000) {
-            next.delete(userId);
-            removed++;
-          }
-        }
-        
-        if (removed > 0) {
-          console.log('[Canvas] Removed', removed, 'stale cursors');
-        }
-        
-        return next;
-      });
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, []);
+  // Remote cursor state and cleanup are handled inside RemoteCursorsLayer
+  // to prevent cursor updates from re-rendering sticky notes and the grid.
 
   // Handle delete key
   useEffect(() => {
@@ -507,6 +487,14 @@ export function Canvas({ boardId }: CanvasProps) {
       {/* Share button — top right */}
       <ShareButton boardId={boardId} />
 
+      {/* Presence bar — online user avatars */}
+      {provider && sessionUserIdRef.current && (
+        <PresenceBar
+          provider={provider}
+          currentUserId={sessionUserIdRef.current}
+        />
+      )}
+
       {/* Connection Status & Zoom indicator */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
         {/* Connection status */}
@@ -587,18 +575,13 @@ export function Canvas({ boardId }: CanvasProps) {
             ))}
         </Layer>
 
-        {/* Remote cursors layer */}
-        <Layer listening={false}>
-          {Array.from(remoteCursors.values()).map((cursor) => (
-            <RemoteCursor
-              key={cursor.userId}
-              x={cursor.x}
-              y={cursor.y}
-              userName={cursor.userName}
-              color={cursor.color}
-            />
-          ))}
-        </Layer>
+        {/* Remote cursors layer — isolated to prevent re-rendering sticky notes */}
+        {socket && sessionUserIdRef.current && (
+          <RemoteCursorsLayer
+            socket={socket}
+            currentUserId={sessionUserIdRef.current}
+          />
+        )}
       </Stage>
 
       {/* Text Editor Overlay */}

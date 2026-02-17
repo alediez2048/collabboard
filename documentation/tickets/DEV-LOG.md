@@ -977,18 +977,75 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 
 ---
 
+---
+
+## TICKET-06: Presence Awareness
+
+**Branch:** `feat/presence`  
+**Date:** 2026-02-17  
+**Time Estimate:** 1 hour  
+**Time Actual:** ~30 minutes  
+
+### 📋 What Was Built
+
+**Yjs Awareness Integration:**
+- Set `provider.awareness.setLocalStateField('user', { userId, userName, color, isOnline })` in `Canvas.tsx` after both provider and session identity are ready
+- Effect depends on `[provider, userColor]` so it re-runs when the async color resolves, ensuring the correct color is always published
+- Cleanup sets awareness state to `null` on component unmount (Yjs also auto-clears on disconnect)
+
+**`PresenceBar` Component (`components/board/PresenceBar.tsx`):**
+- Subscribes to `provider.awareness.on('change', ...)` for real-time updates
+- Extracts `AwarenessUser` objects from `awareness.getStates()` values, filtering out states with no `user` field
+- Renders overlapping colored avatar circles with first initial + tooltip (username on hover)
+- Highlights current user's own avatar with a `ring` border
+- Shows `+N` overflow badge when more than 5 users are present
+- Displays "N online" count badge
+- Has `presence-bar` CSS class for Playwright targeting
+
+**Types (`types/presence.ts`):**
+- `AwarenessUser` — `{ userId, userName, color, isOnline }`
+- `AwarenessState` — `{ user?: AwarenessUser }`
+
+### 📁 Files Changed
+
+| File | Action |
+|------|---------|
+| `types/presence.ts` | Created |
+| `components/board/PresenceBar.tsx` | Created |
+| `components/board/Canvas.tsx` | Modified — awareness set + PresenceBar rendered |
+| `tests/unit/presence.test.ts` | Created |
+
+### 🎯 Acceptance Criteria
+- ✅ Opening a board shows the current user in the presence bar
+- ✅ Opening the same board in a second browser (different account) shows both users
+- ✅ Closing one browser removes that user from the presence bar within 3 seconds
+- ✅ Each user has a distinct color (same color as their cursor)
+- ✅ User count displayed
+
+### 📊 Tests
+- **9 new unit tests** in `tests/unit/presence.test.ts` — all passing
+- Tests cover: empty states, no-user-field filtering, single user, multi-user, 5+ concurrent, required fields, AwarenessState type variants
+- Manual verification: two browsers on same board, both showed correct avatars and "2 online"
+
+### 💡 Learnings
+1. **Awareness vs Y.Doc**: Awareness is a separate ephemeral protocol layered on the same WebSocket — no persistence, no CRDT — just a heartbeat-backed presence map.
+2. **`getStates()` returns a Map**: Keyed by random numeric client ID (not userId). Always use `Array.from(states.values())` to iterate.
+3. **Effect dependency on `userColor`**: The awareness effect needs `userColor` as a dep because color is set asynchronously after `getSession()`. Without it, the awareness state publishes with the default `#3b82f6` before the real color loads.
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 5/14 (36%)
-- **Total Time Spent:** ~12 hours
-- **Time Estimate:** ~10.5 hours planned
-- **Variance:** +1.5 hours (debugging complex multiplayer issues)
+- **Tickets Completed:** 6/14 (43%)
+- **Total Time Spent:** ~12.5 hours
+- **Time Estimate:** ~11.5 hours planned
+- **Variance:** +1 hour (debugging from earlier tickets)
 
 ### ✅ Current Status
 - **Sprint:** On track
 - **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ 23/23 passing
+- **Tests:** ✅ 32/32 passing
 - **Lint:** ✅ Zero errors
 - **Deployment:** ✅ Live on Vercel
 - **Servers:** ✅ Both running (ports 3000, 4000)
@@ -999,11 +1056,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 3. ✅ Real-time infrastructure (Yjs + Socket.io)
 4. ✅ First interactive object (sticky notes)
 5. ✅ Multiplayer cursors + board sharing
+6. ✅ Presence awareness (online user avatars)
 
 ### 📈 Next Priorities
-1. **TICKET-06:** Presence awareness (Yjs awareness protocol)
-2. **TICKET-07:** State persistence (Yjs → Supabase snapshots)
-3. **TICKET-08:** Shapes (rectangle, circle, line)
+1. **TICKET-07:** State persistence (Yjs → Supabase snapshots)
+2. **TICKET-08:** Shapes (rectangle, circle, line)
+3. **TICKET-09:** AI agent (natural language board manipulation)
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early
