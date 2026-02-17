@@ -78,6 +78,12 @@ export function setupYjsServer(wss: WebSocketServer): void {
       const doc = getOrCreateDoc(roomName);
       const awareness = getOrCreateAwareness(roomName, doc);
 
+      // Track which awareness clientIds belong to this WebSocket connection so
+      // we can explicitly remove them when the socket closes — without this,
+      // dead clients linger in the awareness map until the 30-second heartbeat
+      // timeout, making avatars take a long time to disappear.
+      const connClientIds = new Set<number>();
+
       // Send initial sync message
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, messageSync);
@@ -124,7 +130,13 @@ export function setupYjsServer(wss: WebSocketServer): void {
               ws.send(encoding.toUint8Array(encoder));
             }
           } else if (messageType === messageAwareness) {
-            awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), null);
+            // Pass `ws` as the origin so the awareness change handler can
+            // attribute newly added clientIds to this specific connection.
+            awarenessProtocol.applyAwarenessUpdate(
+              awareness,
+              decoding.readVarUint8Array(decoder),
+              ws,
+            );
           }
         } catch (error) {
           console.error('[Yjs] Error processing message:', error);
@@ -146,11 +158,18 @@ export function setupYjsServer(wss: WebSocketServer): void {
       };
       doc.on('update', updateHandler);
 
-      // Handle awareness updates
+      // Handle awareness updates — broadcast to all clients and track which
+      // clientIds are owned by this connection (for cleanup on disconnect).
       const awarenessChangeHandler = (
         { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
-        _origin: unknown
+        origin: unknown,
       ) => {
+        // Track clientIds introduced by this specific WebSocket connection
+        if (origin === ws) {
+          added.forEach((id) => connClientIds.add(id));
+          removed.forEach((id) => connClientIds.delete(id));
+        }
+
         const changedClients = added.concat(updated).concat(removed);
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, messageAwareness);
@@ -171,6 +190,21 @@ export function setupYjsServer(wss: WebSocketServer): void {
       ws.on('close', () => {
         doc.off('update', updateHandler);
         awareness.off('update', awarenessChangeHandler);
+
+        // Immediately remove this connection's awareness states and notify all
+        // remaining clients — this is what makes avatars disappear instantly
+        // instead of waiting for the 30-second heartbeat timeout.
+        if (connClientIds.size > 0) {
+          awarenessProtocol.removeAwarenessStates(
+            awareness,
+            Array.from(connClientIds),
+            null,
+          );
+          console.log(
+            `[Yjs] Removed ${connClientIds.size} awareness state(s) for ${user.email}`,
+          );
+        }
+
         console.log(
           `[Yjs] User ${user.email} disconnected from room: ${roomName}`
         );
