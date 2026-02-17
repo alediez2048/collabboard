@@ -17,6 +17,7 @@ import { RemoteCursorsLayer } from './RemoteCursorsLayer';
 import { ShareButton } from './ShareButton';
 import { PresenceBar } from './PresenceBar';
 import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
+import { Shape } from './Shape';
 import { createYjsProvider } from '@/lib/yjs/provider';
 import { createCursorSocket, emitCursorMove } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
@@ -64,6 +65,15 @@ export function Canvas({ boardId }: CanvasProps) {
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // Shape draw-in-progress state (drag to draw)
+  const [drawingShape, setDrawingShape] = useState<{
+    type: 'rectangle' | 'circle' | 'line';
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
 
   const [userColor, setUserColor] = useState<string>('#3b82f6');
   // Store session info in refs so cursor emission never needs async calls
@@ -132,7 +142,7 @@ export function Canvas({ boardId }: CanvasProps) {
     setPan({ x: stage.x(), y: stage.y() });
   };
 
-  // Handle mouse move — convert coords and emit throttled cursor event synchronously
+  // Handle mouse move — emit throttled cursor event AND update shape preview
   const handleMouseMove = (e: KonvaEventObject<MouseEvent>): void => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -144,7 +154,7 @@ export function Canvas({ boardId }: CanvasProps) {
     const canvasX = (pointerPos.x - stage.x()) / stage.scaleX();
     const canvasY = (pointerPos.y - stage.y()) / stage.scaleY();
 
-    // Emit throttled cursor event synchronously (no async needed — session cached in ref)
+    // Emit throttled cursor event (no async needed — session cached in ref)
     if (socket && socket.connected && sessionUserIdRef.current) {
       const now = Date.now();
       if (now - lastEmitTime.current >= THROTTLE_MS) {
@@ -158,17 +168,17 @@ export function Canvas({ boardId }: CanvasProps) {
         });
       }
     }
+
+    // Update in-progress shape preview
+    if (drawingShape) {
+      setDrawingShape((prev) =>
+        prev ? { ...prev, currentX: canvasX, currentY: canvasY } : null,
+      );
+    }
   };
 
-  // Sync Zustand state to Stage
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    stage.scale({ x: zoom, y: zoom });
-    stage.position(pan);
-    stage.batchDraw();
-  }, [zoom, pan]);
+  // Note: zoom/pan are applied directly via Stage props (scaleX, scaleY, x, y).
+  // No useEffect needed — the controlled props already drive Konva imperatively.
 
   // Initialize Yjs and Socket.io connections
   useEffect(() => {
@@ -396,19 +406,21 @@ export function Canvas({ boardId }: CanvasProps) {
     console.log('[Canvas] Created sticky note:', newNote.id);
   };
 
-  // Handle sticky note selection
-  const handleSelectNote = (id: string): void => {
+  // Handle object selection (sticky notes + shapes)
+  const handleSelectObject = (id: string): void => {
+    if (!yDoc) return;
+    const objects = yDoc.getMap<BoardObject>('objects');
+    const obj = objects.get(id);
     setSelectedObjectId(id);
-    setShowColorPicker(true);
+    // Show color picker for everything except lines
+    setShowColorPicker(!!obj && obj.type !== 'line');
   };
 
-  // Handle sticky note drag end (update position in Yjs)
-  const handleNoteDragEnd = (id: string, x: number, y: number): void => {
+  // Handle object drag end — update position in Yjs
+  const handleObjectDragEnd = (id: string, x: number, y: number): void => {
     if (!yDoc) return;
-
     const objects = yDoc.getMap<BoardObject>('objects');
     updateObject(objects, id, { x, y });
-
     console.log('[Canvas] Updated position:', id, { x, y });
   };
 
@@ -437,32 +449,110 @@ export function Canvas({ boardId }: CanvasProps) {
     console.log('[Canvas] Updated text:', editingObjectId, text);
   };
 
-  // Handle color change
+  // Handle color change — sticky notes use 'color', shapes use 'fillColor'
   const handleColorChange = (color: string): void => {
     if (!yDoc || !selectedObjectId) return;
 
     const objects = yDoc.getMap<BoardObject>('objects');
     const object = objects.get(selectedObjectId);
+    if (!object) return;
 
-    if (object) {
-      updateObject(objects, selectedObjectId, {
-        properties: {
-          ...object.properties,
-          color,
-        },
-      });
-    }
+    const colorKey = object.type === 'sticky_note' ? 'color' : 'fillColor';
+    updateObject(objects, selectedObjectId, {
+      properties: { ...object.properties, [colorKey]: color },
+    });
 
     console.log('[Canvas] Updated color:', selectedObjectId, color);
   };
 
-  // Deselect when clicking on stage
-  const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>): void => {
-    // If clicking on stage (not on an object)
+  // Merged mousedown: deselect on empty canvas + start shape drawing
+  const handleMouseDown = (e: KonvaEventObject<MouseEvent>): void => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    // Deselect when clicking empty canvas
     if (e.target === e.target.getStage()) {
       setSelectedObjectId(null);
       setShowColorPicker(false);
     }
+
+    // Start drawing if a shape tool is active and target is empty canvas
+    const shapeTool = selectedTool as string;
+    if (
+      (shapeTool === 'rectangle' || shapeTool === 'circle' || shapeTool === 'line') &&
+      e.target === stage
+    ) {
+      const pos = stage.getPointerPosition();
+      if (!pos) return;
+      const canvasX = (pos.x - stage.x()) / stage.scaleX();
+      const canvasY = (pos.y - stage.y()) / stage.scaleY();
+
+      // Disable canvas pan while drawing
+      stage.draggable(false);
+      setDrawingShape({
+        type: shapeTool as 'rectangle' | 'circle' | 'line',
+        startX: canvasX,
+        startY: canvasY,
+        currentX: canvasX,
+        currentY: canvasY,
+      });
+    }
+  };
+
+  // Commit the drawn shape to Yjs on mouse up
+  const handleMouseUp = (): void => {
+    const stage = stageRef.current;
+    if (stage) stage.draggable(true); // always re-enable pan
+
+    if (!drawingShape || !yDoc) {
+      setDrawingShape(null);
+      return;
+    }
+
+    const { type, startX, startY, currentX, currentY } = drawingShape;
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
+
+    // Ignore accidental micro-clicks (< 5px)
+    const tooSmall =
+      type === 'line'
+        ? Math.sqrt(width * width + height * height) < 5
+        : width < 5 || height < 5;
+
+    if (tooSmall) {
+      setDrawingShape(null);
+      return;
+    }
+
+    const x = Math.min(startX, currentX);
+    const y = Math.min(startY, currentY);
+
+    const newShape: BoardObject = {
+      id: crypto.randomUUID(),
+      type,
+      x,
+      y,
+      width,
+      height,
+      rotation: 0,
+      zIndex: boardObjects.length + 1,
+      properties:
+        type === 'line'
+          ? { strokeColor: '#1d4ed8', strokeWidth: 2, x2: currentX, y2: currentY }
+          : { fillColor: '#93c5fd', strokeColor: '#1d4ed8', strokeWidth: 2 },
+      createdBy: sessionUserIdRef.current,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    addObject(objects, newShape);
+
+    setDrawingShape(null);
+    setSelectedTool('select');
+    setSelectedObjectId(newShape.id);
+    setShowColorPicker(type !== 'line');
+
+    console.log(`[Canvas] Created ${type}:`, newShape.id);
   };
 
   if (dimensions.width === 0 || dimensions.height === 0) {
@@ -536,12 +626,14 @@ export function Canvas({ boardId }: CanvasProps) {
         onWheel={handleWheel}
         onDragEnd={handleDragEnd}
         onClick={handleStageClick}
-        onMouseDown={handleStageMouseDown}
+        onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
         x={pan.x}
         y={pan.y}
         scaleX={zoom}
         scaleY={zoom}
+        style={{ cursor: ['rectangle', 'circle', 'line'].includes(selectedTool) ? 'crosshair' : 'default' }}
       >
         {/* Grid background */}
         <Grid
@@ -554,7 +646,53 @@ export function Canvas({ boardId }: CanvasProps) {
 
         {/* Main content layer */}
         <Layer>
-          {/* Render sticky notes */}
+          {/* Render shapes (below sticky notes) */}
+          {boardObjects
+            .filter(
+              (obj): obj is BoardObject =>
+                obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line',
+            )
+            .map((obj) => (
+              <Shape
+                key={obj.id}
+                id={obj.id}
+                type={obj.type as 'rectangle' | 'circle' | 'line'}
+                x={obj.x}
+                y={obj.y}
+                width={obj.width}
+                height={obj.height}
+                fillColor={String(obj.properties.fillColor ?? '#93c5fd')}
+                strokeColor={String(obj.properties.strokeColor ?? '#1d4ed8')}
+                strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
+                x2={obj.properties.x2 !== undefined ? Number(obj.properties.x2) : undefined}
+                y2={obj.properties.y2 !== undefined ? Number(obj.properties.y2) : undefined}
+                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                onSelect={handleSelectObject}
+                onDragEnd={handleObjectDragEnd}
+              />
+            ))}
+
+          {/* Ghost shape preview while drawing */}
+          {drawingShape && (
+            <Shape
+              id="__preview__"
+              type={drawingShape.type}
+              x={Math.min(drawingShape.startX, drawingShape.currentX)}
+              y={Math.min(drawingShape.startY, drawingShape.currentY)}
+              width={Math.abs(drawingShape.currentX - drawingShape.startX)}
+              height={Math.abs(drawingShape.currentY - drawingShape.startY)}
+              fillColor="rgba(147, 197, 253, 0.35)"
+              strokeColor="#2563eb"
+              strokeWidth={2}
+              x2={drawingShape.currentX}
+              y2={drawingShape.currentY}
+              isSelected={false}
+              onSelect={() => {}}
+              onDragEnd={() => {}}
+            />
+          )}
+
+          {/* Render sticky notes (above shapes) */}
           {boardObjects
             .filter((obj) => obj.type === 'sticky_note')
             .map((obj) => (
@@ -568,8 +706,8 @@ export function Canvas({ boardId }: CanvasProps) {
                 text={String(obj.properties.text || '')}
                 color={String(obj.properties.color || '#ffeb3b')}
                 isSelected={obj.id === selectedObjectId && !editingObjectId}
-                onSelect={handleSelectNote}
-                onDragEnd={handleNoteDragEnd}
+                onSelect={handleSelectObject}
+                onDragEnd={handleObjectDragEnd}
                 onDoubleClick={handleDoubleClick}
               />
             ))}
@@ -598,8 +736,8 @@ export function Canvas({ boardId }: CanvasProps) {
         />
       )}
 
-      {/* Color Picker */}
-      {showColorPicker && selectedObject && selectedObject.type === 'sticky_note' && (
+      {/* Color Picker — for sticky notes and shapes (not lines) */}
+      {showColorPicker && selectedObject && selectedObject.type !== 'line' && (
         <div
           style={{
             position: 'absolute',
@@ -608,7 +746,11 @@ export function Canvas({ boardId }: CanvasProps) {
           }}
         >
           <ColorPicker
-            selectedColor={String(selectedObject.properties.color || '#ffeb3b')}
+            selectedColor={String(
+              selectedObject.type === 'sticky_note'
+                ? (selectedObject.properties.color ?? '#ffeb3b')
+                : (selectedObject.properties.fillColor ?? '#93c5fd'),
+            )}
             onColorSelect={handleColorChange}
           />
         </div>
