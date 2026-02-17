@@ -22,53 +22,60 @@ export function setupSocketIO(httpServer: HTTPServer): SocketIOServer {
 
   console.log('[Socket.io] Server initialized');
 
-  io.on('connection', async (socket: Socket) => {
+  // Auth middleware — runs before 'connection' fires, so the connection
+  // handler is fully synchronous and all listeners are registered immediately.
+  // This prevents the race condition where 'join-board' arrives before the
+  // async token verification completes inside the connection handler.
+  io.use(async (socket, next) => {
     try {
-      // Verify JWT from handshake auth
-      const token = socket.handshake.auth.token;
+      const token = socket.handshake.auth.token as string | undefined;
 
       if (!token) {
         console.error('[Socket.io] Connection rejected: No token provided');
-        socket.disconnect(true);
-        return;
+        return next(new Error('No token provided'));
       }
 
       const user = await verifySupabaseToken(token);
 
       if (!user) {
         console.error('[Socket.io] Connection rejected: Invalid token');
-        socket.disconnect(true);
-        return;
+        return next(new Error('Invalid token'));
       }
 
-      console.log(`[Socket.io] User ${user.email} connected (${socket.id})`);
-
-      // Handle joining a board room
-      socket.on('join-board', (boardId: string) => {
-        socket.join(boardId);
-        console.log(
-          `[Socket.io] User ${user.email} joined board room: ${boardId}`
-        );
-      });
-
-      // Handle cursor movement
-      socket.on('cursor:move', (data: CursorMoveEvent) => {
-        // Broadcast to all other clients in the same rooms (excluding sender)
-        socket.rooms.forEach((room) => {
-          if (room !== socket.id) {
-            socket.to(room).emit('cursor:move', data);
-          }
-        });
-      });
-
-      // Handle disconnection
-      socket.on('disconnect', () => {
-        console.log(`[Socket.io] User ${user.email} disconnected (${socket.id})`);
-      });
+      // Attach verified user to socket data for use in connection handler
+      socket.data.user = user;
+      next();
     } catch (error) {
-      console.error('[Socket.io] Connection error:', error);
-      socket.disconnect(true);
+      console.error('[Socket.io] Auth middleware error:', error);
+      next(new Error('Authentication error'));
     }
+  });
+
+  // Connection handler is now fully synchronous — all listeners registered immediately
+  io.on('connection', (socket: Socket) => {
+    const user = socket.data.user as { email: string };
+
+    console.log(`[Socket.io] User ${user.email} connected (${socket.id})`);
+
+    // Handle joining a board room
+    socket.on('join-board', (boardId: string) => {
+      socket.join(boardId);
+      console.log(`[Socket.io] User ${user.email} joined board room: ${boardId}`);
+    });
+
+    // Handle cursor movement — broadcast to all other clients in the same room
+    socket.on('cursor:move', (data: CursorMoveEvent) => {
+      socket.rooms.forEach((room) => {
+        if (room !== socket.id) {
+          socket.to(room).emit('cursor:move', data);
+        }
+      });
+    });
+
+    // Handle disconnection
+    socket.on('disconnect', () => {
+      console.log(`[Socket.io] User ${user.email} disconnected (${socket.id})`);
+    });
   });
 
   return io;
