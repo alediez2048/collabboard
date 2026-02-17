@@ -60,7 +60,7 @@ test.describe('Authentication Flow', () => {
     await expect(page.locator('button:has-text("Log out")')).toBeVisible();
   });
 
-  test('allows user to log out', async ({ page, context }) => {
+  test('allows user to log out', async ({ page }) => {
     // First sign up
     await page.goto('/login');
     await page.click('text="Don\'t have an account? Sign up"');

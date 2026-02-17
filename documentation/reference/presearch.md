@@ -1,6 +1,6 @@
 # CollabBoard — Pre-Search / Architecture Reference
 
-Architectural decisions and tech choices are summarized in **PRD.md** (Architecture Summary table) and **system-design.md** (data flow, state ownership, event schemas). This file adds the recommended file structure so scaffolding and agents stay consistent.
+Architectural decisions and tech choices are summarized in **documentation/requirements/PRD.md** (Architecture Summary table) and **documentation/architecture/system-design.md** (data flow, state ownership, event schemas). This file adds the recommended file structure so scaffolding and agents stay consistent.
 
 ---
 

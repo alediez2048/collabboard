@@ -4,7 +4,7 @@
 
 - [x] **TICKET-01** — Project Scaffold + Auth (~2 hrs) ✅ Completed Feb 16
 - [x] **TICKET-02** — Konva Canvas with Pan/Zoom (~1.5 hrs) ✅ Completed Feb 16
-- [ ] **TICKET-03** — y-websocket Server + Yjs Provider (~3 hrs)
+- [x] **TICKET-03** — y-websocket Server + Yjs Provider (~3 hrs) ✅ Completed Feb 17
 - [ ] **TICKET-04** — Sticky Note CRUD via Yjs (~2.5 hrs)
 - [ ] **TICKET-05** — Multiplayer Cursors via Socket.io (~1.5 hrs)
 - [ ] **TICKET-06** — Presence Awareness (~1 hr)
@@ -45,3 +45,17 @@ _Update this file after completing each ticket. Add a one-line note if you devia
 - ✅ Toolbar stub with tool icons (visual only)
 - Fixed: Hydration mismatch by using dynamic import with ssr: false
 - Performance: 60fps pan/zoom, optimized grid rendering
+
+### TICKET-03 (Completed Feb 17, 2026)
+- ✅ All acceptance criteria met
+- ✅ Node.js y-websocket + Socket.io server created in `server/` directory
+- ✅ JWT authentication on all WebSocket connections
+- ✅ Client-side Yjs provider connects to server
+- ✅ Y.Doc with Y.Map initialized for board objects
+- ✅ Socket.io client for cursor broadcast
+- ✅ Connection status indicators in UI (Yjs + Socket.io)
+- ✅ 9 Vitest integration tests passing (100%)
+- ✅ TypeScript strict mode, zero linter errors
+- ✅ Build successful, production-ready
+- Fixed: WebSocket upgrade routing — `ws` library `path` option does exact match, but y-websocket sends `/yjs/{roomName}`. Switched to `noServer: true` + manual `server.on('upgrade')` with prefix matching.
+- Note: Server runs locally, Railway deployment pending (can deploy when ready)

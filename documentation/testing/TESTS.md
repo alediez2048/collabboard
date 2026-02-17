@@ -428,8 +428,8 @@ git add .
 # Commit
 git commit -m "feat(ticket-XX): description"
 
-# Update DEV-LOG.md with test results
-# Mark ticket complete in TICKETS.md
+# Update documentation/tickets/DEV-LOG.md with test results
+# Mark ticket complete in documentation/tickets/TICKETS.md
 
 # Push
 git push origin main

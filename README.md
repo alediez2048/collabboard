@@ -114,13 +114,16 @@ npm run lint -- --fix    # Auto-fix linting issues
 
 ## Documentation
 
-- **[PRD.md](PRD.md)** - Product requirements and ticket breakdown
-- **[TESTS.md](TESTS.md)** - Comprehensive testing guide and strategy
-- **[DEV-LOG.md](DEV-LOG.md)** - Development log (updated after each ticket)
-- **[TICKETS.md](TICKETS.md)** - Current progress tracker
-- **[CLAUDE.md](CLAUDE.md)** - Quick reference for AI agents
-- **[system-design.md](system-design.md)** - Architecture and data flow
-- **[agents.md](agents.md)** - Coding agent guidelines
+All project docs live in **`documentation/`** by category:
+
+| Category | Contents |
+|----------|----------|
+| **[documentation/architecture/](documentation/architecture/)** | [system-design.md](documentation/architecture/system-design.md) — data flow, state ownership, event schema |
+| **[documentation/requirements/](documentation/requirements/)** | [PRD.md](documentation/requirements/PRD.md) — product requirements and ticket breakdown |
+| **[documentation/testing/](documentation/testing/)** | [TESTS.md](documentation/testing/TESTS.md) — testing guide and strategy |
+| **[documentation/agents/](documentation/agents/)** | [agents.md](documentation/agents/agents.md) — coding agent guidelines · [CLAUDE.md](documentation/agents/CLAUDE.md) — quick reference for AI agents |
+| **[documentation/reference/](documentation/reference/)** | [presearch.md](documentation/reference/presearch.md) — file structure and architecture reference |
+| **[documentation/tickets/](documentation/tickets/)** | [TICKETS.md](documentation/tickets/TICKETS.md) — progress tracker · [DEV-LOG.md](documentation/tickets/DEV-LOG.md) — development log · ticket primers (TICKET-02 through TICKET-04) |
 
 ---
 
@@ -133,7 +136,7 @@ This project follows a comprehensive testing strategy:
 - **Unit Tests** (Vitest) - Component logic, utilities
 - **Manual Testing** - UX validation, performance
 
-See **[TESTS.md](TESTS.md)** for detailed testing documentation including:
+See **[documentation/testing/TESTS.md](documentation/testing/TESTS.md)** for detailed testing documentation including:
 - Per-ticket testing checklists
 - Multi-browser testing setup
 - Debugging guides
@@ -143,11 +146,11 @@ See **[TESTS.md](TESTS.md)** for detailed testing documentation including:
 
 ## Development Workflow
 
-1. **Read ticket** in PRD.md
+1. **Read ticket** in [documentation/requirements/PRD.md](documentation/requirements/PRD.md)
 2. **Create feature branch** (e.g., `feat/canvas`)
 3. **Implement feature** following TDD principles
 4. **Run tests** (lint, build, E2E, manual)
-5. **Update documentation** (DEV-LOG.md, TICKETS.md)
+5. **Update documentation** ([documentation/tickets/DEV-LOG.md](documentation/tickets/DEV-LOG.md), [documentation/tickets/TICKETS.md](documentation/tickets/TICKETS.md))
 6. **Commit and push** with conventional commits
 7. **Deploy** via Vercel (auto-deploy from `main`)
 

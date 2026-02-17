@@ -2,9 +2,9 @@
 
 **Project:** Real-Time Collaborative Whiteboard with AI Agent  
 **Sprint:** 1 week (Feb 16–23, 2026)  
-**Architecture Reference:** See `presearch.md` for full architectural decisions and justifications  
-**System Design Reference:** See `system-design.md` for data flow diagrams, state ownership, and event schemas  
-**Agent Context:** See `agents.md` for coding agent non-negotiables  
+**Architecture Reference:** See `documentation/reference/presearch.md` for full architectural decisions and justifications  
+**System Design Reference:** See `documentation/architecture/system-design.md` for data flow diagrams, state ownership, and event schemas  
+**Agent Context:** See `documentation/agents/agents.md` for coding agent non-negotiables  
 
 ---
 
@@ -78,7 +78,7 @@ All 9 items must be working and deployed:
 - [ ] Deployed on Vercel with working auth
 
 **Cursor prompt seed:**
-> Read `@agents.md` and `@system-design.md`. Scaffold a Next.js 15 App Router project with Supabase Auth (email/password). Create a login page, a board list page, and a protected `/board/[id]` route. Use Zustand for UI state. Follow the file structure in `@presearch.md` section 13.
+> Read `@documentation/agents/agents.md` and `@documentation/architecture/system-design.md`. Scaffold a Next.js 15 App Router project with Supabase Auth (email/password). Create a login page, a board list page, and a protected `/board/[id]` route. Use Zustand for UI state. Follow the file structure in `@documentation/reference/presearch.md` section 13.
 
 ---
 
@@ -464,9 +464,9 @@ The buffer is critical. Something will break — probably Yjs persistence or the
 
 1. **One ticket at a time.** Never start TICKET-N+1 before TICKET-N is committed and pushed.
 2. **Fresh Cursor chat per ticket.** Don't carry context drift from the previous ticket.
-3. **Prime the agent.** Every chat starts with: "Read `@agents.md` and `@system-design.md`. I'm working on TICKET-XX."
+3. **Prime the agent.** Every chat starts with: "Read `@documentation/agents/agents.md` and `@documentation/architecture/system-design.md`. I'm working on TICKET-XX."
 4. **20-minute rule.** Stuck for 20 minutes → switch to Claude Code for a fresh perspective, or ask in Slack.
 5. **Commit after every ticket.** Every commit on `main` must be deployable.
 6. **Test sync constantly.** After every ticket that touches Yjs or Socket.io, open two browser tabs and verify.
-7. **Update DEV-LOG.md after every ticket.** 60 seconds per entry. Don't defer to Sunday.
+7. **Update documentation/tickets/DEV-LOG.md after every ticket.** 60 seconds per entry. Don't defer to Sunday.
 8. **Don't start AI agent before sync works.** Tickets 11-12 come after 01-07. No exceptions.

@@ -29,12 +29,12 @@ Real-time collaborative whiteboard with AI agent. Built with Next.js 15, Konva.j
 - Error handling: always try/catch with typed errors
 
 ## Key Files
-- `system-design.md` — data flow, state ownership, event schema
-- `PRD.md` — ticket breakdown and acceptance criteria
-- `agents.md` — coding agent non-negotiables
-- `TICKETS.md` — current progress tracker
-- `TESTS.md` — comprehensive testing guide and strategy
-- `DEV-LOG.md` — development log updated after each ticket
+- `documentation/architecture/system-design.md` — data flow, state ownership, event schema
+- `documentation/requirements/PRD.md` — ticket breakdown and acceptance criteria
+- `documentation/agents/agents.md` — coding agent non-negotiables
+- `documentation/tickets/TICKETS.md` — current progress tracker
+- `documentation/testing/TESTS.md` — comprehensive testing guide and strategy
+- `documentation/tickets/DEV-LOG.md` — development log updated after each ticket
 
 ## Docs / References
 - **Konva.js:** https://konvajs.org/docs/

@@ -7,7 +7,7 @@
 ## Copy-Paste This Into New Agent:
 
 ```
-Read @agents.md, @system-design.md, @PRD.md, and @TESTS.md.
+Read @documentation/agents/agents.md, @documentation/architecture/system-design.md, @documentation/requirements/PRD.md, and @documentation/testing/TESTS.md.
 
 I'm working on TICKET-02: Konva Canvas with Pan/Zoom.
 
@@ -36,9 +36,9 @@ implement infinite pan (drag) and zoom (mouse wheel), add a dot grid background
 that scales with zoom, display zoom level in UI, and add a toolbar stub (visual only).
 
 Check @app/board/[id]/page.tsx before starting. Don't overwrite existing code.
-Follow the file structure in @presearch.md section 13.
+Follow the file structure in @documentation/reference/presearch.md section 13.
 
-After completion, follow the TICKET-02 testing checklist in @TESTS.md.
+After completion, follow the TICKET-02 testing checklist in @documentation/testing/TESTS.md.
 ```
 
 ---
@@ -69,7 +69,7 @@ After completion, follow the TICKET-02 testing checklist in @TESTS.md.
 
 ---
 
-### TICKET-02 Scope (from PRD.md)
+### TICKET-02 Scope (from documentation/requirements/PRD.md)
 
 **Time budget:** 1.5 hours  
 **Dependencies:** TICKET-01 ✅  
@@ -143,7 +143,7 @@ pan: { x: number; y: number }
 
 ---
 
-### Testing Requirements (from TESTS.md)
+### Testing Requirements (from documentation/testing/TESTS.md)
 
 **After completion:**
 
@@ -172,8 +172,8 @@ pan: { x: number; y: number }
    ```
 
 4. **Update Documentation:**
-   - Mark TICKET-02 complete in `TICKETS.md`
-   - Add entry to `DEV-LOG.md`
+   - Mark TICKET-02 complete in `documentation/tickets/TICKETS.md`
+   - Add entry to `documentation/tickets/DEV-LOG.md`
 
 ---
 
@@ -246,8 +246,8 @@ const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
 **Ticket complete when:**
 - [ ] All code complete criteria met
 - [ ] Tests pass (lint, build, manual)
-- [ ] DEV-LOG.md updated
-- [ ] TICKETS.md updated
+- [ ] documentation/tickets/DEV-LOG.md updated
+- [ ] documentation/tickets/TICKETS.md updated
 - [ ] Committed to `feat/canvas` branch
 - [ ] Pushed to GitHub
 - [ ] Merged to `main`
@@ -297,9 +297,9 @@ npm install -D @types/konva
 
 ### Quick Reference Links
 
-- PRD TICKET-02: Line 85-107 in `PRD.md`
-- Testing checklist: Search "TICKET-02" in `TESTS.md`
-- File structure: `presearch.md` section 13
+- PRD TICKET-02: Line 85-107 in `documentation/requirements/PRD.md`
+- Testing checklist: Search "TICKET-02" in `documentation/testing/TESTS.md`
+- File structure: `documentation/reference/presearch.md` section 13
 - Zustand store: `stores/ui-store.ts`
 
 ---

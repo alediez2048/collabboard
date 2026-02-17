@@ -7,7 +7,7 @@
 ## Copy-Paste This Into New Agent:
 
 ```
-Read @agents.md, @system-design.md, @PRD.md, and @TESTS.md.
+Read @documentation/agents/agents.md, @documentation/architecture/system-design.md, @documentation/requirements/PRD.md, and @documentation/testing/TESTS.md.
 
 I'm working on TICKET-03: y-websocket Server + Yjs Provider.
 
@@ -33,10 +33,10 @@ Create a Node.js server with y-websocket for Yjs document sync and Socket.io for
 broadcast. Server must verify Supabase JWTs. Client must connect to both services and 
 establish Y.Doc with Y.Map for board objects. Write integration tests for Yjs sync.
 
-Check @system-design.md for data flow architecture before starting.
-Follow the file structure in @presearch.md section 13.
+Check @documentation/architecture/system-design.md for data flow architecture before starting.
+Follow the file structure in @documentation/reference/presearch.md section 13.
 
-After completion, follow the TICKET-03 testing checklist in @TESTS.md.
+After completion, follow the TICKET-03 testing checklist in @documentation/testing/TESTS.md.
 ```
 
 ---
@@ -65,7 +65,7 @@ After completion, follow the TICKET-03 testing checklist in @TESTS.md.
 
 ---
 
-### TICKET-03 Scope (from PRD.md)
+### TICKET-03 Scope (from documentation/requirements/PRD.md)
 
 **Time budget:** 3 hours  
 **Dependencies:** TICKET-01 ✅  
@@ -138,7 +138,7 @@ After completion, follow the TICKET-03 testing checklist in @TESTS.md.
 3. **JWT verification required** - All WebSocket connections must authenticate
 4. **No persistence yet** - TICKET-07 will add Supabase snapshots
 5. **TypeScript strict mode** - No `any` types
-6. **Separate data paths** - Yjs for objects, Socket.io for cursors (see system-design.md)
+6. **Separate data paths** - Yjs for objects, Socket.io for cursors (see documentation/architecture/system-design.md)
 
 ---
 
@@ -455,7 +455,7 @@ export function Canvas({ boardId }: { boardId: string }) {
 
 ---
 
-### Testing Requirements (from TESTS.md)
+### Testing Requirements (from documentation/testing/TESTS.md)
 
 **Vitest Integration Test (`tests/integration/yjs-sync.test.ts`):**
 ```typescript
@@ -594,8 +594,8 @@ NEXT_PUBLIC_WS_URL=wss://your-railway-app.railway.app
 - [ ] Server deployed to Railway
 - [ ] Client connects to Railway server (update NEXT_PUBLIC_WS_URL)
 - [ ] Tests pass (Vitest, build)
-- [ ] DEV-LOG.md updated
-- [ ] TICKETS.md updated
+- [ ] documentation/tickets/DEV-LOG.md updated
+- [ ] documentation/tickets/TICKETS.md updated
 - [ ] Committed to `feat/yjs-server` branch
 - [ ] Pushed to GitHub
 - [ ] Merged to `main`
@@ -638,9 +638,9 @@ Objects won't be rendered on the canvas until TICKET-04.
 
 ### Quick Reference Links
 
-- PRD TICKET-03: Line 110-134 in `PRD.md`
-- Testing checklist: Search "TICKET-03" in `TESTS.md`
-- System design: `system-design.md` (data flow diagram)
+- PRD TICKET-03: Line 110-134 in `documentation/requirements/PRD.md`
+- Testing checklist: Search "TICKET-03" in `documentation/testing/TESTS.md`
+- System design: `documentation/architecture/system-design.md` (data flow diagram)
 - Yjs docs: https://docs.yjs.dev/
 - y-websocket: https://github.com/yjs/y-websocket
 - Socket.io: https://socket.io/docs/v4/
@@ -649,7 +649,7 @@ Objects won't be rendered on the canvas until TICKET-04.
 
 ### Critical Architecture Review
 
-Before writing any code, review `system-design.md`:
+Before writing any code, review `documentation/architecture/system-design.md`:
 - Understand the three separate real-time data paths
 - Yjs for board objects (CRDT merge, persistent)
 - Socket.io for cursors (broadcast only, ephemeral)
