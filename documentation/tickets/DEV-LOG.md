@@ -1034,34 +1034,151 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 
 ---
 
+---
+
+## TICKET-07: State Persistence (Yjs → Supabase)
+
+**Date:** Feb 17, 2026  
+**Branch:** `feat/persistence` → merged to `main`  
+**Time:** ~1.5 hours
+
+### 🎯 What Was Built
+
+**Server-side persistence module (`server/src/persistence.ts`):**
+- `loadSnapshot(boardId, doc)` — reads bytea from Supabase `board_snapshots`, applies via `Y.applyUpdate()`. Handles `PGRST116` (new board = no snapshot, not an error)
+- `saveSnapshot(boardId, doc)` — upserts `Y.encodeStateAsUpdate()` bytea by `board_id` (one row per board)
+- `createDebouncedSave(boardId, doc, 500ms)` — debounced wrapper, returns `{ debouncedSave, cancel }`
+
+**`server/src/yjs-server.ts` changes:**
+- Added `roomClients: Map<string, Set<WebSocket>>` to track connections per room
+- On first client connect: `loadSnapshot()` before sending sync step1 (client gets full state immediately)
+- On every Y.Doc update: `debouncedSave()` — at most one Supabase write per 500ms
+- On last client disconnect: `cancel()` pending debounce + immediate `saveSnapshot()`
+
+**Supabase migration (`supabase/migrations/board_snapshots.sql`):**
+- `board_snapshots` table: `id`, `board_id` (unique), `yjs_state` (bytea), `snapshot_at`
+- RLS enabled, owner-read policy
+
+**Bug fix — PresenceBar duplicate React keys:**
+- Same user with multiple tabs produced duplicate `userId` keys in awareness states
+- Fixed by deduplicating with `Map<userId, AwarenessUser>` before setting state
+
+### 📁 Files Changed
+
+| File | Action |
+|------|--------|
+| `server/src/persistence.ts` | Created |
+| `server/src/yjs-server.ts` | Modified |
+| `supabase/migrations/board_snapshots.sql` | Created |
+| `server/.env.example` | Modified — added `SUPABASE_SERVICE_ROLE_KEY` |
+| `components/board/PresenceBar.tsx` | Modified — dedup fix |
+| `tests/unit/persistence.test.ts` | Created — 6 tests |
+
+### 🎯 Acceptance Criteria
+- ✅ Create sticky note, close all tabs, reopen → note still there
+- ✅ Server logs show debounced saves (not every keystroke)
+- ✅ New board shows "No snapshot found" log
+- ✅ Two-user session: both add notes, both close, reopen → all notes present
+
+### 📊 Tests
+- **6 new unit tests** in `tests/unit/persistence.test.ts` — all passing
+- Tests cover: encode/decode roundtrip, Buffer simulation, CRDT merge, empty doc, multi-object, merge-into-non-empty
+
+### 💡 Learnings
+1. **PGRST116 is not an error** — Supabase returns this code for "no rows found" on `.single()`. Must be handled explicitly or the new-board flow breaks.
+2. **Bytea comes back as base64** — Supabase REST API (PostgREST) encodes `bytea` columns as base64 strings. Always `Buffer.from(data.yjs_state, 'base64')`.
+3. **Load before sync step1** — applying snapshot after sending sync step1 causes a flash of empty board. Order: `getOrCreateDoc → loadSnapshot → send sync step1`.
+4. **Service role key bypasses RLS** — anon key would fail silently on writes. Server-side persistence must use `SUPABASE_SERVICE_ROLE_KEY`.
+
+---
+
+## TICKET-08: Shapes (Rectangle, Circle, Line)
+
+**Date:** Feb 17, 2026  
+**Branch:** `feat/persistence` (committed alongside TICKET-07) → merged to `main`  
+**Time:** ~1.5 hours
+
+### 🎯 What Was Built
+
+**`components/board/Shape.tsx`:**
+- Renders `<Rect>`, `<Circle>`, `<Line>` based on `type` prop
+- Circle uses bounding-box top-left storage (consistent with Rect), computes Konva center at render
+- Line renders with a wide transparent hit area (`strokeWidth + 12`) for easy clicking
+- Selection highlighted with `#2563eb` border (same pattern as StickyNote)
+- Drag disables stage pan (same `useEffect` pattern as StickyNote)
+
+**`components/board/Canvas.tsx` changes:**
+- `drawingShape` state tracks in-progress drag draws
+- `handleMouseDown` (merged): deselects on empty canvas + starts shape draw + disables stage pan
+- `handleMouseUp`: commits shape to Yjs, re-enables pan, ignores < 5px accidental clicks
+- `handleMouseMove` extended: also updates ghost preview coords alongside cursor emit
+- Layer renders: shapes → ghost preview → sticky notes (z-order)
+- Crosshair cursor when a shape tool is active
+- `handleColorChange` uses `'color'` for sticky notes, `'fillColor'` for shapes
+- Color picker shown for all non-line selectable objects
+
+**Performance fix:**
+- Removed redundant `useEffect([zoom, pan])` that called `stage.scale()`, `stage.position()`, `stage.batchDraw()` after React had already applied those values via controlled Stage props — eliminated one extra Konva draw per wheel tick
+
+### 📁 Files Changed
+
+| File | Action |
+|------|--------|
+| `components/board/Shape.tsx` | Created |
+| `components/board/Canvas.tsx` | Modified |
+| `tests/unit/shapes.test.ts` | Created — 9 tests |
+| `documentation/tickets/TICKET-08-PRIMER.md` | Created |
+
+### 🎯 Acceptance Criteria
+- ✅ User can draw rectangle, circle, line by click-and-drag
+- ✅ Ghost preview shows while drawing
+- ✅ Shapes sync to other browsers via Yjs
+- ✅ Shapes can be moved (drag) and color-changed (except line)
+- ✅ Shapes persist across browser close/reopen (via TICKET-07 snapshots)
+
+### 📊 Tests
+- **9 new unit tests** in `tests/unit/shapes.test.ts` — all passing
+- **47 total tests** passing across 5 test files
+- Tests cover: create/sync/update/delete for rect, circle, line; mixed board with sticky notes
+
+### 💡 Learnings
+1. **Controlled vs imperative Konva** — Stage props (`scaleX`, `x`) are controlled, so a separate `useEffect` to call `stage.scale()` was double-writing on every render. Remove the effect, let props drive Konva.
+2. **Pan must be disabled during draw** — without `stage.draggable(false)` on mousedown, the canvas pans instead of drawing. Re-enable on mouseup.
+3. **Line hit area** — Konva `<Line>` with `strokeWidth: 2` is almost impossible to click. Adding a transparent overlay line with `strokeWidth: 16` makes it user-friendly.
+4. **Minimum size guard** — mouseup without a meaningful drag (< 5px) must be ignored, otherwise every click on the canvas accidentally creates a tiny shape.
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 6/14 (43%)
-- **Total Time Spent:** ~12.5 hours
-- **Time Estimate:** ~11.5 hours planned
-- **Variance:** +1 hour (debugging from earlier tickets)
+- **Tickets Completed:** 8/15 (53%)
+- **Total Time Spent:** ~15.5 hours
+- **Time Estimate:** ~15 hours planned
+- **Variance:** +0.5 hours
 
 ### ✅ Current Status
-- **Sprint:** On track
+- **Sprint:** On track — Feature Expansion phase
 - **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ 32/32 passing
+- **Tests:** ✅ 47/47 passing
 - **Lint:** ✅ Zero errors
-- **Deployment:** ✅ Live on Vercel
+- **Deployment:** ✅ Live on Vercel (auto-deploy from main)
 - **Servers:** ✅ Both running (ports 3000, 4000)
 
 ### 🏆 Major Milestones
 1. ✅ Full authentication system
 2. ✅ Canvas with pan/zoom
 3. ✅ Real-time infrastructure (Yjs + Socket.io)
-4. ✅ First interactive object (sticky notes)
+4. ✅ Sticky notes with full CRUD
 5. ✅ Multiplayer cursors + board sharing
 6. ✅ Presence awareness (online user avatars)
+7. ✅ State persistence (Yjs → Supabase, survives server restart)
+8. ✅ Shapes (rectangle, circle, line) with drag-to-draw
 
 ### 📈 Next Priorities
-1. **TICKET-07:** State persistence (Yjs → Supabase snapshots)
-2. **TICKET-08:** Shapes (rectangle, circle, line)
-3. **TICKET-09:** AI agent (natural language board manipulation)
+1. **TICKET-09:** Connectors + Frames (today)
+2. **TICKET-10:** Selection + Transforms (today)
+3. **MVP Demo** — after TICKET-10
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early
@@ -1070,6 +1187,8 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 4. **Type Safety**: Strict TypeScript catches bugs at compile time
 5. **Dual Transport**: Separating persistent (Yjs) and ephemeral (Socket.io) data is clean
 6. **Middleware Pattern**: Auth belongs in middleware, not handlers — applies to both HTTP and WebSocket
+7. **Controlled vs Imperative UI**: Mixing controlled React props with imperative Konva calls causes double-renders — pick one path per concern
+8. **Awareness ≠ Doc**: Yjs awareness is per-connection (clientId), not per-user (userId) — always deduplicate by userId before rendering
 
 ---
 
