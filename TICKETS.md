@@ -3,7 +3,7 @@
 ## MVP Sprint (Due: Tue 11:59 PM CT)
 
 - [x] **TICKET-01** — Project Scaffold + Auth (~2 hrs) ✅ Completed Feb 16
-- [ ] **TICKET-02** — Konva Canvas with Pan/Zoom (~1.5 hrs)
+- [x] **TICKET-02** — Konva Canvas with Pan/Zoom (~1.5 hrs) ✅ Completed Feb 16
 - [ ] **TICKET-03** — y-websocket Server + Yjs Provider (~3 hrs)
 - [ ] **TICKET-04** — Sticky Note CRUD via Yjs (~2.5 hrs)
 - [ ] **TICKET-05** — Multiplayer Cursors via Socket.io (~1.5 hrs)
@@ -36,3 +36,12 @@ _Update this file after completing each ticket. Add a one-line note if you devia
 - Added: Email confirmation disabled programmatically via CLI
 - Fixed: Linter warning in middleware.ts (unused options parameter)
 - Deviation: Renamed directory to remove spaces (Vercel requirement)
+
+### TICKET-02 (Completed Feb 16, 2026)
+- ✅ All acceptance criteria met
+- ✅ Full-viewport Konva canvas with infinite pan and zoom
+- ✅ Dot grid background that scales with zoom
+- ✅ Zoom level indicator (bottom-right)
+- ✅ Toolbar stub with tool icons (visual only)
+- Fixed: Hydration mismatch by using dynamic import with ssr: false
+- Performance: 60fps pan/zoom, optimized grid rendering

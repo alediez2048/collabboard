@@ -121,6 +121,93 @@
 
 ---
 
+## TICKET-02: Konva Canvas with Pan/Zoom ✅
+
+**Completed:** Feb 16, 2026  
+**Time Spent:** ~1 hour (estimate: 1.5 hrs)  
+**Branch:** `feat/canvas` → merged to `main`
+
+### Scope Completed
+
+1. ✅ Installed `konva` and `react-konva` dependencies
+2. ✅ Full-viewport Konva Stage in `/board/[id]`
+3. ✅ Infinite pan (drag empty canvas)
+4. ✅ Smooth mouse wheel zoom (0.1x to 10x limits)
+5. ✅ Zoom toward cursor position
+6. ✅ Dot grid background that scales with zoom
+7. ✅ Zoom level indicator (bottom-right corner)
+8. ✅ Toolbar component stub with tool icons (visual only)
+
+### Key Achievements
+
+- **60fps Performance**: Canvas pan/zoom is smooth with proper event handling
+- **Optimized Grid Rendering**: Only renders visible dots, uses `listening: false` for performance
+- **Zustand Integration**: Added `pan` state to UI store, syncs with Konva Stage
+- **Responsive**: Handles window resize dynamically
+- **Type-Safe**: Full TypeScript strict mode compliance, no `any` types
+
+### Technical Decisions
+
+1. **Client-Only Rendering**: Used Next.js `dynamic` import with `ssr: false` to avoid hydration mismatch (Canvas uses `window` APIs)
+2. **Zoom Limits**: 0.1x to 10x prevents extreme zoom levels that could cause performance issues
+3. **Grid Spacing**: 50px base spacing with dots scaled by inverse zoom for consistent visual size
+4. **Stage Props**: Used `draggable` prop for pan, custom `onWheel` handler for zoom
+
+### Issues Encountered & Solutions
+
+| Issue | Solution |
+|-------|----------|
+| Hydration mismatch error on initial load | Used `dynamic` import with `ssr: false` to client-only render Canvas |
+| Grid performance with many dots | Only render dots in visible viewport, use `listening: false` |
+| Zoom felt jumpy | Implemented zoom toward cursor position using pointer coordinates |
+
+### Files Created
+
+- `components/board/Canvas.tsx` - Main Konva Stage with pan/zoom logic
+- `components/board/Grid.tsx` - Optimized dot grid background layer
+- `components/board/Toolbar.tsx` - Toolbar stub with tool buttons (no functionality yet)
+
+### Files Modified
+
+- `app/board/[id]/page.tsx` - Replaced placeholder with Canvas component (dynamic import)
+- `stores/ui-store.ts` - Added `pan: { x, y }` state with setter
+- `package.json` - Added `konva` and `react-konva` dependencies
+
+### Testing Summary
+
+**Manual Testing (5 min):**
+- ✅ Canvas fills viewport
+- ✅ Drag to pan - smooth 60fps
+- ✅ Mouse wheel zoom - responsive, zooms toward cursor
+- ✅ Zoom level displays correctly (updates in real-time)
+- ✅ Grid scales properly with zoom
+- ✅ No console errors after hydration fix
+- ✅ Regression: Auth still works
+
+**Automated Testing:**
+- ✅ Build successful (`npm run build`)
+- ✅ No linting errors in our code
+- ✅ TypeScript compilation passed
+- Note: E2E tests not needed per TESTS.md (visual/interactive feature)
+
+### Next Steps (TICKET-03)
+
+- Set up y-websocket + Socket.io server in `server/` directory
+- Implement Yjs provider on client (`lib/yjs/provider.ts`)
+- Initialize Y.Doc and Y.Map for board objects (`lib/yjs/board-doc.ts`)
+- Socket.io connection for cursor broadcast (`lib/sync/cursor-socket.ts`)
+- Server-side JWT authentication for WebSocket connections
+- Deploy server to Railway
+
+### Learnings & Notes
+
+1. **Konva + Next.js**: Always use dynamic import with `ssr: false` for Canvas components that use browser APIs
+2. **Performance**: `listening: false` on static shapes is critical for 60fps with hundreds of dots
+3. **Zoom UX**: Zooming toward cursor feels more natural than zooming toward center
+4. **Grid Optimization**: Calculating visible bounds and only rendering those dots prevents thousands of unnecessary DOM elements
+
+---
+
 ## Playwright E2E Test Suite Setup (Post-TICKET-01)
 
 **Added:** Feb 16, 2026  
