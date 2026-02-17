@@ -1,12 +1,20 @@
 import * as Y from 'yjs';
 import { WebSocketServer, WebSocket } from 'ws';
-import { setupWSConnection } from 'y-websocket/bin/utils';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+import * as syncProtocol from 'y-protocols/sync';
+import * as awarenessProtocol from 'y-protocols/awareness';
 import { IncomingMessage } from 'http';
 import { verifySupabaseToken } from './auth';
+
+// Message types
+const messageSync = 0;
+const messageAwareness = 1;
 
 // In-memory storage for Y.Docs (one per board)
 // In TICKET-07, we'll add persistence to Supabase
 const docs = new Map<string, Y.Doc>();
+const awarenessMap = new Map<string, awarenessProtocol.Awareness>();
 
 function getOrCreateDoc(roomName: string): Y.Doc {
   let doc = docs.get(roomName);
@@ -18,6 +26,17 @@ function getOrCreateDoc(roomName: string): Y.Doc {
   }
 
   return doc;
+}
+
+function getOrCreateAwareness(roomName: string, doc: Y.Doc): awarenessProtocol.Awareness {
+  let awareness = awarenessMap.get(roomName);
+  
+  if (!awareness) {
+    awareness = new awarenessProtocol.Awareness(doc);
+    awarenessMap.set(roomName, awareness);
+  }
+  
+  return awareness;
 }
 
 export function setupYjsServer(wss: WebSocketServer): void {
@@ -55,13 +74,103 @@ export function setupYjsServer(wss: WebSocketServer): void {
         `[Yjs] User ${user.email} connected to room: ${roomName}`
       );
 
-      // Get or create the Y.Doc for this room
+      // Get or create the shared Y.Doc for this room
       const doc = getOrCreateDoc(roomName);
+      const awareness = getOrCreateAwareness(roomName, doc);
 
-      // Setup the WebSocket connection with y-websocket
-      setupWSConnection(ws, req, { docName: roomName, gc: true });
+      // Send initial sync message
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageSync);
+      syncProtocol.writeSyncStep1(encoder, doc);
+      ws.send(encoding.toUint8Array(encoder));
+
+      const awarenessStates = awareness.getStates();
+      if (awarenessStates.size > 0) {
+        const awarenessEncoder = encoding.createEncoder();
+        encoding.writeVarUint(awarenessEncoder, messageAwareness);
+        encoding.writeVarUint8Array(
+          awarenessEncoder,
+          awarenessProtocol.encodeAwarenessUpdate(awareness, Array.from(awarenessStates.keys()))
+        );
+        ws.send(encoding.toUint8Array(awarenessEncoder));
+      }
+
+      // Handle incoming messages
+      ws.on('message', (message: Buffer) => {
+        try {
+          const uint8Array = new Uint8Array(message);
+          const decoder = decoding.createDecoder(uint8Array);
+          const messageType = decoding.readVarUint(decoder);
+
+          if (messageType === messageSync) {
+            const encoder = encoding.createEncoder();
+            encoding.writeVarUint(encoder, messageSync);
+            const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, doc, null);
+            
+            if (syncMessageType === syncProtocol.messageYjsSyncStep1 || syncMessageType === syncProtocol.messageYjsUpdate) {
+              // Broadcast to all other clients in the room
+              const update = encoding.toUint8Array(encoder);
+              if (update.length > 1) {
+                wss.clients.forEach((client) => {
+                  if (client !== ws && client.readyState === WebSocket.OPEN) {
+                    client.send(update);
+                  }
+                });
+              }
+            }
+
+            // Send response
+            if (encoding.length(encoder) > 1) {
+              ws.send(encoding.toUint8Array(encoder));
+            }
+          } else if (messageType === messageAwareness) {
+            awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), null);
+          }
+        } catch (error) {
+          console.error('[Yjs] Error processing message:', error);
+        }
+      });
+
+      // Handle updates to the doc
+      const updateHandler = (update: Uint8Array, origin: unknown) => {
+        if (origin !== ws) {
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, messageSync);
+          syncProtocol.writeUpdate(encoder, update);
+          const message = encoding.toUint8Array(encoder);
+          
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(message);
+          }
+        }
+      };
+      doc.on('update', updateHandler);
+
+      // Handle awareness updates
+      const awarenessChangeHandler = (
+        { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
+        _origin: unknown
+      ) => {
+        const changedClients = added.concat(updated).concat(removed);
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, messageAwareness);
+        encoding.writeVarUint8Array(
+          encoder,
+          awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
+        );
+        const message = encoding.toUint8Array(encoder);
+        
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+          }
+        });
+      };
+      awareness.on('update', awarenessChangeHandler);
 
       ws.on('close', () => {
+        doc.off('update', updateHandler);
+        awareness.off('update', awarenessChangeHandler);
         console.log(
           `[Yjs] User ${user.email} disconnected from room: ${roomName}`
         );

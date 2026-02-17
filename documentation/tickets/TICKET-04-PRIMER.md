@@ -1,8 +1,51 @@
 # TICKET-04: Sticky Note CRUD via Yjs — Primer
 
+**Use this to start TICKET-04 in a fresh Cursor agent session.**
+
+---
+
+## Copy-Paste This Into New Agent:
+
+```
+Read @documentation/agents/agents.md, @documentation/architecture/system-design.md, @documentation/requirements/PRD.md, and @documentation/testing/TESTS.md.
+
+I'm working on TICKET-04: Sticky Note CRUD via Yjs.
+
+Current state:
+- ✅ TICKET-01 is COMPLETE (auth, board CRUD, deployed)
+- ✅ TICKET-02 is COMPLETE (Konva canvas with pan/zoom)
+- ✅ TICKET-03 is COMPLETE (Yjs Y.Map, WebSocket provider, Socket.io, server running)
+- ✅ Yjs infrastructure exists: lib/yjs/board-doc.ts with typed helpers (addObject, updateObject, removeObject, getAllObjects)
+- ✅ WebSocket server exists: server/src/index.ts with y-websocket + Socket.io on port 4000
+- ✅ Canvas component initializes Y.Doc and WebsocketProvider on mount
+- ✅ Connection status indicators show Yjs + Socket.io connected (green dots)
+- ✅ Integration tests passing: tests/integration/yjs-sync.test.ts (9/9 tests)
+
+What's NOT done yet:
+- ❌ No board objects rendered on canvas (empty Layer at line 256 in Canvas.tsx)
+- ❌ No StickyNote component
+- ❌ No Y.Map observer in Canvas (no reactive rendering from Yjs)
+- ❌ No click-to-create interaction
+- ❌ No text editing (no HTML textarea overlay)
+- ❌ No color picker
+- ❌ No delete functionality
+
+TICKET-04 Goal:
+Implement the first interactive board object: sticky notes. Users can create, move, edit text, change color, and delete sticky notes. All operations write to the Yjs Y.Map — Yjs handles real-time sync automatically.
+
+Check @documentation/architecture/system-design.md for data flow architecture before starting.
+Follow the file structure in @documentation/reference/presearch.md section 13.
+
+After completion, follow the TICKET-04 testing checklist in @documentation/testing/TESTS.md.
+```
+
+---
+
+## Quick Reference
+
 **Time Budget:** 2.5 hours  
-**Branch:** `feat/sticky-notes`  
-**Dependencies:** TICKET-01 (auth), TICKET-02 (canvas), TICKET-03 (Yjs + Socket.io)
+**Branch:** `feat/sticky-notes` ✅ (already created)  
+**Dependencies:** TICKET-01 (auth), TICKET-02 (canvas), TICKET-03 (Yjs + Socket.io) — all complete
 
 ---
 

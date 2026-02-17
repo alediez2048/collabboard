@@ -787,17 +787,207 @@ Flakiness expected for E2E due to network/async. Auto-retry handles this.
 
 ---
 
+---
+
+## TICKET-05: Multiplayer Cursors via Socket.io ✅
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 17, 2026
+- **Time Spent:** ~3.5 hours (estimate: 1.5 hrs)
+- **Branch:** `feat/multiplayer-cursors`
+- **Commit:** `ea24a4c`
+
+### 🎯 Scope
+- ✅ `RemoteCursor.tsx` — Konva component with pointer shape and username label
+- ✅ Mouse position tracking in Canvas with screen → canvas coordinate conversion
+- ✅ Throttled cursor emission at ~30Hz using `useRef` (synchronous, no async)
+- ✅ Session userId/userName cached in refs on mount — avoids async `getSession()` on every move
+- ✅ Remote cursor state management via `Map<userId, CursorMoveEvent & { timestamp }>`
+- ✅ Dedicated non-interactive Konva Layer for remote cursors (above objects)
+- ✅ Unique stable color per user via userId hash (8 colors)
+- ✅ No echo — own cursor filtered using cached userId ref
+- ✅ Stale cursor cleanup — cursors removed after 5 seconds of inactivity
+- ✅ Board sharing via URL — `ShareButton` component copies link to clipboard
+- ✅ `JoinBoardPrompt` — replaces 404 for shared board links, lets users self-onboard
+- ✅ `POST /api/boards/[id]/join` — API route for self-service board membership
+- ✅ `board_members` table + recursion-safe RLS policies in Supabase
+- ✅ Home page shows "Shared with me" section alongside owned boards
+
+### 🏆 Key Achievements
+- **Cursors Working End-to-End**: Two different accounts on the same board see each other's cursors in real time at ~30Hz
+- **Race Condition Squashed**: Discovered and fixed a fundamental Socket.io auth race condition that was silently dropping `join-board` events
+- **Yjs Shared State Fixed**: Each WebSocket connection was getting its own isolated Y.Doc — fixed with a shared in-memory docs Map so all clients share one document per board
+- **Board Sharing MVP**: Full self-service sharing flow (copy link → join prompt → collaborating) with zero manual database steps
+- **RLS Recursion Eliminated**: Designed a strict one-way dependency in RLS policies that prevents infinite recursion
+
+### 🔧 Technical Implementation
+
+**Cursor Emission Architecture (Final):**
+```typescript
+// Session cached in refs on mount — synchronous access at 30Hz
+const sessionUserIdRef = useRef<string>('');
+const sessionUserNameRef = useRef<string>('Anonymous');
+
+// Throttle + emit inside handleMouseMove (fully synchronous)
+const handleMouseMove = (e: KonvaEventObject<MouseEvent>): void => {
+  const now = Date.now();
+  if (socket?.connected && sessionUserIdRef.current) {
+    if (now - lastEmitTime.current >= THROTTLE_MS) {
+      lastEmitTime.current = now;
+      emitCursorMove(socket, { userId, userName, x: canvasX, y: canvasY, color });
+    }
+  }
+};
+```
+
+**Socket.io Auth Middleware (The Critical Fix):**
+```typescript
+// BEFORE (broken): async token verify inside connection handler
+io.on('connection', async (socket) => {
+  const user = await verifySupabaseToken(token); // async gap!
+  socket.on('join-board', ...);  // listener registered too late — events dropped
+});
+
+// AFTER (correct): verify in middleware, connection handler fully synchronous
+io.use(async (socket, next) => {
+  const user = await verifySupabaseToken(token);
+  socket.data.user = user;
+  next();
+});
+
+io.on('connection', (socket) => {
+  // Synchronous — join-board listener registered immediately on connect
+  socket.on('join-board', (boardId) => { socket.join(boardId); });
+  socket.on('cursor:move', (data) => { /* broadcast */ });
+});
+```
+
+**Yjs Shared Doc Fix:**
+```typescript
+// In-memory Map ensures all connections share the same Y.Doc per board
+const docs = new Map<string, Y.Doc>();
+
+function getOrCreateDoc(roomName: string): Y.Doc {
+  if (!docs.has(roomName)) docs.set(roomName, new Y.Doc());
+  return docs.get(roomName)!;
+}
+
+// Pass doc via getYDoc option so y-websocket uses our shared instance
+setupWSConnection(ws, req, { docName: roomName, gc: true, getYDoc: () => doc });
+```
+
+**RLS Policy Design (Recursion-Safe):**
+```
+board_members policies → reference board_members only (no external table joins)
+boards SELECT policy → references board_members (safe, one-way dependency)
+boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
+```
+
+### ⚠️ Issues & Solutions
+
+| Issue | Solution |
+|-------|----------|
+| Cursors not showing despite green Socket indicator | `join-board` events were dropped due to async race condition in connection handler |
+| `join-board` events silently dropped | Moved JWT verification to Socket.io middleware so connection handler is synchronous |
+| Yjs changes not syncing between different accounts | Each connection had its own Y.Doc — fixed with shared in-memory Map |
+| 404 on shared board URLs (different accounts) | RLS blocked cross-user access — added `board_members` table + join API |
+| Board creation returning 500 | RLS infinite recursion: `boards` policy queried `board_members`, which queried `boards` |
+| Recursion fixed but still failing | Multiple conflicting policies stacked up — nuked all policies on both tables and rebuilt cleanly |
+| `y-websocket/bin/utils` import error | Package v2 doesn't expose this path — replaced with custom Yjs protocol implementation using `lib0` + `y-protocols` |
+| Async `getSession()` called on every mouse move | Cached userId/userName in `useRef` on mount — all subsequent cursor emission fully synchronous |
+
+### ✅ Testing
+
+**Manual Multi-Browser Testing:**
+- ✅ Move mouse in Browser A → labeled cursor appears in Browser B with correct color
+- ✅ Move mouse in Browser B → labeled cursor appears in Browser A with different color
+- ✅ Each cursor shows username (email prefix) label
+- ✅ Cursor position correct at zoom 100%, 50%, 200%
+- ✅ Cursor position correct after panning
+- ✅ No echo — own cursor not visible as remote
+- ✅ Close Browser A → cursor disappears in Browser B within 5 seconds
+- ✅ Create sticky note in A → appears in B (Yjs sync working across different accounts)
+- ✅ Share button copies correct URL to clipboard
+- ✅ Pasting shared URL in incognito → Join Board prompt → clicking Join → board loads with sync
+
+**Build & Lint:**
+- ✅ `npm run build` — clean (frontend)
+- ✅ `npm run build` — clean (server)
+- ✅ Zero TypeScript errors
+- ✅ Zero linting errors
+
+### 📁 Files Changed
+
+**Frontend Created:**
+- `components/board/RemoteCursor.tsx` — Konva pointer shape + username label
+- `components/board/ShareButton.tsx` — Copy-to-clipboard share button
+- `components/board/JoinBoardPrompt.tsx` — Self-onboard UI for shared links
+- `app/api/boards/[id]/join/route.ts` — POST endpoint to add user as board member
+
+**Frontend Modified:**
+- `components/board/Canvas.tsx` — cursor tracking, emission, remote cursor rendering, session caching
+- `app/board/[id]/page.tsx` — show join prompt instead of 404 for inaccessible boards
+- `app/page.tsx` — split boards into "Your Boards" + "Shared with me" sections
+
+**Server Modified:**
+- `server/src/socket-server.ts` — moved auth to middleware (the critical fix)
+- `server/src/yjs-server.ts` — custom Yjs protocol with shared in-memory docs Map
+
+**Server Dependencies Added:**
+- `lib0` — low-level encoding utilities for Yjs protocol
+- `y-protocols` — Yjs sync + awareness protocol implementation
+
+**Database:**
+- `supabase/migrations/board_members.sql` — `board_members` table + all RLS policies (boards + board_members)
+
+### 🎯 Acceptance Criteria
+- ✅ User's cursor position is tracked on canvas
+- ✅ Cursor position emitted to Socket.io (throttled to ~30Hz)
+- ✅ Remote cursors received and rendered
+- ✅ Each cursor has a unique color per user
+- ✅ Each cursor shows the user's name label
+- ✅ Cursor coordinates converted correctly (canvas coords, not screen coords)
+- ✅ No echo — user doesn't see their own cursor
+- ✅ Cursors disappear when users leave (< 5 sec delay)
+- ✅ All of the above work across two different accounts in two different browsers
+
+### 📊 Performance
+- **Cursor Update Rate:** ~30Hz (33ms throttle)
+- **Sync Latency:** < 50ms observed (local)
+- **Canvas FPS:** 60fps maintained during cursor movement
+- **Stale Cursor Cleanup:** 5 second timeout, checked every 1 second
+- **Session Init:** One `getSession()` call on mount, zero async calls during mouse movement
+
+### 🚀 Next Steps (TICKET-06)
+- Implement Yjs awareness protocol for presence
+- Create `PresenceBar` component showing online user avatars/colors
+- Show user count
+- Auto-remove users on disconnect via awareness protocol
+
+### 💡 Learnings
+1. **Socket.io Middleware for Auth**: Never do async work inside the `connection` handler before registering listeners — events arrive immediately and get dropped. Always use `io.use()` middleware for async auth.
+2. **Async on Hot Paths**: Calling `getSession()` on every mousemove (60Hz) is a subtle but serious performance bug. Cache session data in refs once on mount.
+3. **Yjs Doc Isolation**: Each WebSocket connection needs to explicitly share the same Y.Doc instance via `getYDoc` callback — the library doesn't share by default across connections.
+4. **RLS Circular Dependencies**: Postgres RLS policies can reference other tables, but circular references cause infinite recursion at query time. Design a strict acyclic dependency graph.
+5. **Debugging Multiplayer**: The most efficient approach — add targeted logs at each stage of the pipeline (emit → server receive → server broadcast → client receive → render) to find the exact break point.
+6. **Socket.io Silent Drops**: Socket.io drops events with no registered listener with zero warning. Always ensure listeners are registered synchronously before the client has a chance to emit.
+
+**Time Variance:** +2 hours over estimate due to debugging three independent bugs (race condition, Yjs isolation, RLS recursion) that were invisible until tested with two different accounts.
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 4/14 (29%)
-- **Total Time Spent:** ~8.5 hours
-- **Time Estimate:** ~9 hours planned
-- **Variance:** -30 min (ahead of schedule)
+- **Tickets Completed:** 5/14 (36%)
+- **Total Time Spent:** ~12 hours
+- **Time Estimate:** ~10.5 hours planned
+- **Variance:** +1.5 hours (debugging complex multiplayer issues)
 
 ### ✅ Current Status
 - **Sprint:** On track
-- **Build:** ✅ Clean
+- **Build:** ✅ Clean (frontend + server)
 - **Tests:** ✅ 23/23 passing
 - **Lint:** ✅ Zero errors
 - **Deployment:** ✅ Live on Vercel
@@ -808,18 +998,20 @@ Flakiness expected for E2E due to network/async. Auto-retry handles this.
 2. ✅ Canvas with pan/zoom
 3. ✅ Real-time infrastructure (Yjs + Socket.io)
 4. ✅ First interactive object (sticky notes)
+5. ✅ Multiplayer cursors + board sharing
 
 ### 📈 Next Priorities
-1. **TICKET-05:** Multiplayer cursors
-2. **TICKET-06:** Presence awareness
-3. **TICKET-07:** State persistence
+1. **TICKET-06:** Presence awareness (Yjs awareness protocol)
+2. **TICKET-07:** State persistence (Yjs → Supabase snapshots)
+3. **TICKET-08:** Shapes (rectangle, circle, line)
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early
 2. **Architecture Pays Off**: Yjs CRDT eliminates conflict resolution complexity
-3. **Proactive Setup**: CLI tools, test infrastructure established upfront saves time
+3. **Async on Hot Paths is Dangerous**: Multiplayer features expose async bugs that single-user testing never reveals
 4. **Type Safety**: Strict TypeScript catches bugs at compile time
 5. **Dual Transport**: Separating persistent (Yjs) and ephemeral (Socket.io) data is clean
+6. **Middleware Pattern**: Auth belongs in middleware, not handlers — applies to both HTTP and WebSocket
 
 ---
 

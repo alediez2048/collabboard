@@ -13,13 +13,35 @@ import { Toolbar } from './Toolbar';
 import { StickyNote } from './StickyNote';
 import { TextEditor } from './TextEditor';
 import { ColorPicker } from './ColorPicker';
+import { RemoteCursor } from './RemoteCursor';
+import { ShareButton } from './ShareButton';
 import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
 import { createYjsProvider } from '@/lib/yjs/provider';
-import { createCursorSocket } from '@/lib/sync/cursor-socket';
+import { createCursorSocket, emitCursorMove, onCursorMove, type CursorMoveEvent } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
 
 interface CanvasProps {
   boardId: string;
+}
+
+/**
+ * Generate a stable, unique color for a user based on their ID
+ */
+function getUserColor(userId: string): string {
+  const colors = [
+    '#ef4444', // red
+    '#f59e0b', // amber
+    '#10b981', // emerald
+    '#3b82f6', // blue
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#06b6d4', // cyan
+    '#f97316', // orange
+  ];
+  
+  // Simple hash: sum char codes
+  const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return colors[hash % colors.length];
 }
 
 export function Canvas({ boardId }: CanvasProps) {
@@ -44,6 +66,15 @@ export function Canvas({ boardId }: CanvasProps) {
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // Cursor state
+  const [remoteCursors, setRemoteCursors] = useState<Map<string, CursorMoveEvent & { timestamp: number }>>(new Map());
+  const [userColor, setUserColor] = useState<string>('#3b82f6');
+  // Store session info in refs so cursor emission never needs async calls
+  const sessionUserIdRef = useRef<string>('');
+  const sessionUserNameRef = useRef<string>('Anonymous');
+  const lastEmitTime = useRef<number>(0);
+  const THROTTLE_MS = 33; // ~30Hz
 
   // Handle window resize
   useEffect(() => {
@@ -103,6 +134,34 @@ export function Canvas({ boardId }: CanvasProps) {
   const handleDragEnd = (e: KonvaEventObject<DragEvent>): void => {
     const stage = e.target as Konva.Stage;
     setPan({ x: stage.x(), y: stage.y() });
+  };
+
+  // Handle mouse move — convert coords and emit throttled cursor event synchronously
+  const handleMouseMove = (e: KonvaEventObject<MouseEvent>): void => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+
+    // Convert screen coordinates to canvas coordinates
+    const canvasX = (pointerPos.x - stage.x()) / stage.scaleX();
+    const canvasY = (pointerPos.y - stage.y()) / stage.scaleY();
+
+    // Emit throttled cursor event synchronously (no async needed — session cached in ref)
+    if (socket && socket.connected && sessionUserIdRef.current) {
+      const now = Date.now();
+      if (now - lastEmitTime.current >= THROTTLE_MS) {
+        lastEmitTime.current = now;
+        emitCursorMove(socket, {
+          userId: sessionUserIdRef.current,
+          userName: sessionUserNameRef.current,
+          x: canvasX,
+          y: canvasY,
+          color: userColor,
+        });
+      }
+    }
   };
 
   // Sync Zustand state to Stage
@@ -221,6 +280,72 @@ export function Canvas({ boardId }: CanvasProps) {
       objects.unobserve(observer);
     };
   }, [yDoc]);
+
+  // Initialize user color + cache session info for cursor emission
+  useEffect(() => {
+    const initSession = async (): Promise<void> => {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        const color = getUserColor(session.user.id);
+        setUserColor(color);
+        sessionUserIdRef.current = session.user.id;
+        sessionUserNameRef.current = session.user.email?.split('@')[0] || 'Anonymous';
+        console.log('[Canvas] User color assigned:', color);
+      }
+    };
+
+    initSession();
+  }, []);
+
+  // Listen for remote cursor movements (synchronous — userId cached in ref)
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleRemoteCursor = (data: CursorMoveEvent): void => {
+      // Don't show own cursor
+      if (sessionUserIdRef.current && data.userId === sessionUserIdRef.current) return;
+
+      setRemoteCursors((prev) => {
+        const next = new Map(prev);
+        next.set(data.userId, { ...data, timestamp: Date.now() });
+        return next;
+      });
+    };
+
+    onCursorMove(socket, handleRemoteCursor);
+
+    return () => {
+      socket.off('cursor:move', handleRemoteCursor);
+    };
+  }, [socket]);
+
+  // Cleanup stale cursors (remove if no update for 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setRemoteCursors((prev) => {
+        const next = new Map(prev);
+        let removed = 0;
+        
+        for (const [userId, cursor] of next.entries()) {
+          if (now - cursor.timestamp > 5000) {
+            next.delete(userId);
+            removed++;
+          }
+        }
+        
+        if (removed > 0) {
+          console.log('[Canvas] Removed', removed, 'stale cursors');
+        }
+        
+        return next;
+      });
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // Handle delete key
   useEffect(() => {
@@ -379,6 +504,9 @@ export function Canvas({ boardId }: CanvasProps) {
       {/* Toolbar */}
       <Toolbar />
 
+      {/* Share button — top right */}
+      <ShareButton boardId={boardId} />
+
       {/* Connection Status & Zoom indicator */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
         {/* Connection status */}
@@ -421,6 +549,7 @@ export function Canvas({ boardId }: CanvasProps) {
         onDragEnd={handleDragEnd}
         onClick={handleStageClick}
         onMouseDown={handleStageMouseDown}
+        onMouseMove={handleMouseMove}
         x={pan.x}
         y={pan.y}
         scaleX={zoom}
@@ -456,6 +585,19 @@ export function Canvas({ boardId }: CanvasProps) {
                 onDoubleClick={handleDoubleClick}
               />
             ))}
+        </Layer>
+
+        {/* Remote cursors layer */}
+        <Layer listening={false}>
+          {Array.from(remoteCursors.values()).map((cursor) => (
+            <RemoteCursor
+              key={cursor.userId}
+              x={cursor.x}
+              y={cursor.y}
+              userName={cursor.userName}
+              color={cursor.color}
+            />
+          ))}
         </Layer>
       </Stage>
 
