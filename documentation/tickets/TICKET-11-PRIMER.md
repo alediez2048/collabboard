@@ -124,6 +124,49 @@ Implement typed tool schemas for:
 
 ---
 
+## Pre-Flight Setup (Outside Cursor)
+
+Before coding TICKET-11, verify external service setup:
+
+1. **OpenAI**
+   - Confirm billing/project is active
+   - Create API key for this app
+   - Set `OPENAI_API_KEY` locally and in deployment env vars
+
+2. **Tracing platform (choose at least one)**
+   - **LangSmith**:
+     - `LANGCHAIN_API_KEY`
+     - `LANGCHAIN_TRACING_V2=true`
+     - `LANGCHAIN_PROJECT=<project-name>`
+   - **Langfuse**:
+     - `LANGFUSE_SECRET_KEY`
+     - `LANGFUSE_PUBLIC_KEY`
+     - `LANGFUSE_HOST` (e.g. `https://us.cloud.langfuse.com`)
+
+3. **Environment files**
+   - Use local env file (`.env.local`) for app runtime secrets
+   - Keep `.env.example` placeholder-only (never real keys)
+   - Add matching env vars to Vercel (Preview + Production)
+
+### Reuse Existing Starter Repo (Important)
+
+You already have:
+- `/Users/jad/Downloads/1.3-langsmith-langfuse-main`
+
+Use it as a **reference implementation** for observability patterns:
+- `langsmith_demo.py` — OpenAI call wrapped with LangSmith tracing
+- `langfuse_demo.py` — OpenAI call instrumented with Langfuse decorators
+- `.env.sample` — required key names for both platforms
+
+Do **not** copy the Python app directly; port the tracing pattern into this Next.js/TypeScript project.
+
+### Recommended Approach for This Project
+
+- **TICKET-11 (basic):** OpenAI function calling + one tracing platform
+- **TICKET-12 (complex):** add deeper orchestration (LangChain-style multi-step planner/executor) only if needed
+
+---
+
 ## Testing Checklist (Manual + Automated)
 
 ### Manual
