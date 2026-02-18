@@ -18,6 +18,8 @@ import { ShareButton } from './ShareButton';
 import { PresenceBar } from './PresenceBar';
 import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
 import { Shape } from './Shape';
+import { Frame } from './Frame';
+import { Connector } from './Connector';
 import { createYjsProvider } from '@/lib/yjs/provider';
 import { createCursorSocket, emitCursorMove } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
@@ -68,12 +70,15 @@ export function Canvas({ boardId }: CanvasProps) {
 
   // Shape draw-in-progress state (drag to draw)
   const [drawingShape, setDrawingShape] = useState<{
-    type: 'rectangle' | 'circle' | 'line';
+    type: 'rectangle' | 'circle' | 'line' | 'frame';
     startX: number;
     startY: number;
     currentX: number;
     currentY: number;
   } | null>(null);
+
+  // Connector tool: ID of the first object clicked (awaiting second click)
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
 
   const [userColor, setUserColor] = useState<string>('#3b82f6');
   // Store session info in refs so cursor emission never needs async calls
@@ -345,6 +350,17 @@ export function Canvas({ boardId }: CanvasProps) {
         if (yDoc) {
           const objects = yDoc.getMap<BoardObject>('objects');
           removeObject(objects, selectedObjectId);
+
+          // Remove any connectors whose fromId or toId referenced the deleted object
+          objects.forEach((obj, key) => {
+            if (
+              obj.type === 'connector' &&
+              (obj.properties.fromId === selectedObjectId || obj.properties.toId === selectedObjectId)
+            ) {
+              objects.delete(key);
+            }
+          });
+
           setSelectedObjectId(null);
           setShowColorPicker(false);
         }
@@ -406,14 +422,46 @@ export function Canvas({ boardId }: CanvasProps) {
     console.log('[Canvas] Created sticky note:', newNote.id);
   };
 
-  // Handle object selection (sticky notes + shapes)
+  // Handle connector two-click draw: first click = set fromId, second click = create connector
+  const handleConnectorObjectClick = (objectId: string): void => {
+    if (!yDoc) return;
+    if (!connectingFrom) {
+      setConnectingFrom(objectId);
+    } else if (connectingFrom !== objectId) {
+      const connector: BoardObject = {
+        id: crypto.randomUUID(),
+        type: 'connector',
+        x: 0, y: 0, width: 0, height: 0,
+        rotation: 0,
+        zIndex: boardObjects.length + 1,
+        properties: {
+          fromId: connectingFrom,
+          toId: objectId,
+          color: '#1d4ed8',
+          strokeWidth: 2,
+        },
+        createdBy: sessionUserIdRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+      const objects = yDoc.getMap<BoardObject>('objects');
+      addObject(objects, connector);
+      setConnectingFrom(null);
+      setSelectedTool('select');
+      console.log('[Canvas] Created connector:', connector.id);
+    }
+  };
+
+  // Handle object selection (sticky notes + shapes + frames + connectors)
   const handleSelectObject = (id: string): void => {
+    if (selectedTool === 'connector') {
+      handleConnectorObjectClick(id);
+      return;
+    }
     if (!yDoc) return;
     const objects = yDoc.getMap<BoardObject>('objects');
     const obj = objects.get(id);
     setSelectedObjectId(id);
-    // Show color picker for everything except lines
-    setShowColorPicker(!!obj && obj.type !== 'line');
+    setShowColorPicker(!!obj && obj.type !== 'line' && obj.type !== 'connector' && obj.type !== 'frame');
   };
 
   // Handle object drag end — update position in Yjs
@@ -430,7 +478,7 @@ export function Canvas({ boardId }: CanvasProps) {
     setShowColorPicker(false);
   };
 
-  // Handle text save
+  // Handle text save (sticky notes use 'text', frames use 'title')
   const handleTextSave = (text: string): void => {
     if (!yDoc || !editingObjectId) return;
 
@@ -438,10 +486,11 @@ export function Canvas({ boardId }: CanvasProps) {
     const object = objects.get(editingObjectId);
 
     if (object) {
+      const textKey = object.type === 'frame' ? 'title' : 'text';
       updateObject(objects, editingObjectId, {
         properties: {
           ...object.properties,
-          text,
+          [textKey]: text,
         },
       });
     }
@@ -476,10 +525,15 @@ export function Canvas({ boardId }: CanvasProps) {
       setShowColorPicker(false);
     }
 
-    // Start drawing if a shape tool is active and target is empty canvas
+    // Cancel connector flow on empty-canvas click
+    if (selectedTool === 'connector' && e.target === stage) {
+      setConnectingFrom(null);
+    }
+
+    // Start drawing if a shape or frame tool is active and target is empty canvas
     const shapeTool = selectedTool as string;
     if (
-      (shapeTool === 'rectangle' || shapeTool === 'circle' || shapeTool === 'line') &&
+      (shapeTool === 'rectangle' || shapeTool === 'circle' || shapeTool === 'line' || shapeTool === 'frame') &&
       e.target === stage
     ) {
       const pos = stage.getPointerPosition();
@@ -490,7 +544,7 @@ export function Canvas({ boardId }: CanvasProps) {
       // Disable canvas pan while drawing
       stage.draggable(false);
       setDrawingShape({
-        type: shapeTool as 'rectangle' | 'circle' | 'line',
+        type: shapeTool as 'rectangle' | 'circle' | 'line' | 'frame',
         startX: canvasX,
         startY: canvasY,
         currentX: canvasX,
@@ -527,22 +581,34 @@ export function Canvas({ boardId }: CanvasProps) {
     const x = Math.min(startX, currentX);
     const y = Math.min(startY, currentY);
 
-    const newShape: BoardObject = {
-      id: crypto.randomUUID(),
-      type,
-      x,
-      y,
-      width,
-      height,
-      rotation: 0,
-      zIndex: boardObjects.length + 1,
-      properties:
-        type === 'line'
-          ? { strokeColor: '#1d4ed8', strokeWidth: 2, x2: currentX, y2: currentY }
-          : { fillColor: '#93c5fd', strokeColor: '#1d4ed8', strokeWidth: 2 },
-      createdBy: sessionUserIdRef.current,
-      updatedAt: new Date().toISOString(),
-    };
+    let newShape: BoardObject;
+
+    if (type === 'frame') {
+      newShape = {
+        id: crypto.randomUUID(),
+        type: 'frame',
+        x, y, width, height,
+        rotation: 0,
+        zIndex: 0,
+        properties: { title: 'Frame', fillColor: 'rgba(219,234,254,0.25)', strokeColor: '#3b82f6' },
+        createdBy: sessionUserIdRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      newShape = {
+        id: crypto.randomUUID(),
+        type,
+        x, y, width, height,
+        rotation: 0,
+        zIndex: boardObjects.length + 1,
+        properties:
+          type === 'line'
+            ? { strokeColor: '#1d4ed8', strokeWidth: 2, x2: currentX, y2: currentY }
+            : { fillColor: '#93c5fd', strokeColor: '#1d4ed8', strokeWidth: 2 },
+        createdBy: sessionUserIdRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+    }
 
     const objects = yDoc.getMap<BoardObject>('objects');
     addObject(objects, newShape);
@@ -550,7 +616,7 @@ export function Canvas({ boardId }: CanvasProps) {
     setDrawingShape(null);
     setSelectedTool('select');
     setSelectedObjectId(newShape.id);
-    setShowColorPicker(type !== 'line');
+    setShowColorPicker(type !== 'line' && type !== 'frame');
 
     console.log(`[Canvas] Created ${type}:`, newShape.id);
   };
@@ -583,6 +649,15 @@ export function Canvas({ boardId }: CanvasProps) {
           provider={provider}
           currentUserId={sessionUserIdRef.current}
         />
+      )}
+
+      {/* Connector "connecting from" hint */}
+      {selectedTool === 'connector' && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700 shadow">
+          {connectingFrom
+            ? 'Now click the destination object to complete the connector'
+            : 'Click the source object to start a connector'}
+        </div>
       )}
 
       {/* Connection Status & Zoom indicator */}
@@ -633,7 +708,7 @@ export function Canvas({ boardId }: CanvasProps) {
         y={pan.y}
         scaleX={zoom}
         scaleY={zoom}
-        style={{ cursor: ['rectangle', 'circle', 'line'].includes(selectedTool) ? 'crosshair' : 'default' }}
+        style={{ cursor: ['rectangle', 'circle', 'line', 'frame'].includes(selectedTool) ? 'crosshair' : selectedTool === 'connector' ? 'cell' : 'default' }}
       >
         {/* Grid background */}
         <Grid
@@ -646,7 +721,45 @@ export function Canvas({ boardId }: CanvasProps) {
 
         {/* Main content layer */}
         <Layer>
-          {/* Render shapes (below sticky notes) */}
+          {/* 1. Frames — bottom, behind everything */}
+          {boardObjects
+            .filter((obj): obj is BoardObject => obj.type === 'frame')
+            .map((obj) => (
+              <Frame
+                key={obj.id}
+                id={obj.id}
+                x={obj.x}
+                y={obj.y}
+                width={obj.width}
+                height={obj.height}
+                title={String(obj.properties.title ?? 'Frame')}
+                fillColor={String(obj.properties.fillColor ?? 'rgba(219,234,254,0.25)')}
+                strokeColor={String(obj.properties.strokeColor ?? '#3b82f6')}
+                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                onSelect={handleSelectObject}
+                onDragEnd={handleObjectDragEnd}
+                onDoubleClick={handleDoubleClick}
+              />
+            ))}
+
+          {/* 2. Connectors — above frames, below shapes */}
+          {boardObjects
+            .filter((obj): obj is BoardObject => obj.type === 'connector')
+            .map((obj) => (
+              <Connector
+                key={obj.id}
+                id={obj.id}
+                fromId={String(obj.properties.fromId ?? '')}
+                toId={String(obj.properties.toId ?? '')}
+                color={String(obj.properties.color ?? '#1d4ed8')}
+                strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
+                boardObjects={boardObjects}
+                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                onSelect={handleSelectObject}
+              />
+            ))}
+
+          {/* 3. Shapes */}
           {boardObjects
             .filter(
               (obj): obj is BoardObject =>
@@ -672,11 +785,11 @@ export function Canvas({ boardId }: CanvasProps) {
               />
             ))}
 
-          {/* Ghost shape preview while drawing */}
-          {drawingShape && (
+          {/* 4. Ghost preview while drawing */}
+          {drawingShape && drawingShape.type !== 'frame' && (
             <Shape
               id="__preview__"
-              type={drawingShape.type}
+              type={drawingShape.type as 'rectangle' | 'circle' | 'line'}
               x={Math.min(drawingShape.startX, drawingShape.currentX)}
               y={Math.min(drawingShape.startY, drawingShape.currentY)}
               width={Math.abs(drawingShape.currentX - drawingShape.startX)}
@@ -691,8 +804,24 @@ export function Canvas({ boardId }: CanvasProps) {
               onDragEnd={() => {}}
             />
           )}
+          {drawingShape && drawingShape.type === 'frame' && (
+            <Frame
+              id="__frame_preview__"
+              x={Math.min(drawingShape.startX, drawingShape.currentX)}
+              y={Math.min(drawingShape.startY, drawingShape.currentY)}
+              width={Math.abs(drawingShape.currentX - drawingShape.startX)}
+              height={Math.abs(drawingShape.currentY - drawingShape.startY)}
+              title="Frame"
+              fillColor="rgba(219,234,254,0.15)"
+              strokeColor="#3b82f6"
+              isSelected={false}
+              onSelect={() => {}}
+              onDragEnd={() => {}}
+              onDoubleClick={() => {}}
+            />
+          )}
 
-          {/* Render sticky notes (above shapes) */}
+          {/* 5. Sticky notes — top */}
           {boardObjects
             .filter((obj) => obj.type === 'sticky_note')
             .map((obj) => (
@@ -727,9 +856,13 @@ export function Canvas({ boardId }: CanvasProps) {
         <TextEditor
           x={editingObject.x}
           y={editingObject.y}
-          width={editingObject.width}
-          height={editingObject.height}
-          initialText={String(editingObject.properties.text || '')}
+          width={editingObject.type === 'frame' ? Math.max(editingObject.width, 120) : editingObject.width}
+          height={editingObject.type === 'frame' ? 36 : editingObject.height}
+          initialText={String(
+            editingObject.type === 'frame'
+              ? (editingObject.properties.title || '')
+              : (editingObject.properties.text || '')
+          )}
           stage={stageRef.current}
           onSave={handleTextSave}
           onClose={() => setEditingObjectId(null)}

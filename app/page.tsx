@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { Board } from '@/types/board';
 import { CreateBoardButton } from '@/components/create-board-button';
+import { DeleteBoardButton } from '@/components/delete-board-button';
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -41,18 +42,25 @@ export default async function HomePage() {
         {ownedBoards.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
             {ownedBoards.map((board: Board) => (
-              <Link
+              <div
                 key={board.id}
-                href={`/board/${board.id}`}
-                className="block p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+                className="group relative bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
               >
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                  {board.name}
-                </h2>
-                <p className="text-sm text-gray-500">
-                  Created {new Date(board.created_at).toLocaleDateString()}
-                </p>
-              </Link>
+                <Link
+                  href={`/board/${board.id}`}
+                  className="block p-6"
+                >
+                  <h2 className="text-xl font-semibold text-gray-900 mb-2 pr-8">
+                    {board.name}
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    Created {new Date(board.created_at).toLocaleDateString()}
+                  </p>
+                </Link>
+                <div className="absolute top-4 right-4">
+                  <DeleteBoardButton boardId={board.id} boardName={board.name} />
+                </div>
+              </div>
             ))}
           </div>
         ) : (
@@ -67,23 +75,32 @@ export default async function HomePage() {
             <h2 className="text-xl font-semibold text-gray-700 mb-4">Shared with me</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {sharedBoards.map((board: Board) => (
-                <Link
+                <div
                   key={board.id}
-                  href={`/board/${board.id}`}
-                  className="block p-6 bg-white rounded-lg shadow-sm border border-blue-100 hover:shadow-md transition-shadow"
+                  className="group relative bg-white rounded-lg shadow-sm border border-blue-100 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <h2 className="text-xl font-semibold text-gray-900">
-                      {board.name}
-                    </h2>
-                    <span className="text-xs bg-blue-100 text-blue-600 font-medium px-2 py-0.5 rounded-full ml-2 shrink-0">
-                      Shared
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    Joined {new Date(board.created_at).toLocaleDateString()}
-                  </p>
-                </Link>
+                  <Link
+                    href={`/board/${board.id}`}
+                    className="block p-6"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <h2 className="text-xl font-semibold text-gray-900 pr-8">
+                        {board.name}
+                      </h2>
+                      <span className="text-xs bg-blue-100 text-blue-600 font-medium px-2 py-0.5 rounded-full ml-2 shrink-0">
+                        Shared
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500">
+                      Joined {new Date(board.created_at).toLocaleDateString()}
+                    </p>
+                  </Link>
+                  {board.created_by === user.id && (
+                    <div className="absolute top-4 right-4">
+                      <DeleteBoardButton boardId={board.id} boardName={board.name} />
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           </>

@@ -42,13 +42,28 @@ export async function loadSnapshot(boardId: string, doc: Y.Doc): Promise<boolean
       return false;
     }
 
-    // yjs_state comes back as a base64 string via Supabase REST API (PostgREST)
-    const stateBuffer =
-      typeof data.yjs_state === 'string'
-        ? Buffer.from(data.yjs_state, 'base64')
-        : Buffer.from(data.yjs_state as Buffer);
+    // PostgREST returns BYTEA as hex (\x...) or base64 depending on pg config.
+    let stateBuffer: Buffer;
+    const raw = data.yjs_state;
+    if (typeof raw === 'string') {
+      stateBuffer = raw.startsWith('\\x')
+        ? Buffer.from(raw.substring(2), 'hex')
+        : Buffer.from(raw, 'base64');
+    } else {
+      stateBuffer = Buffer.from(raw as Buffer);
+    }
 
-    Y.applyUpdate(doc, new Uint8Array(stateBuffer));
+    try {
+      Y.applyUpdate(doc, new Uint8Array(stateBuffer));
+    } catch (applyErr) {
+      console.error(`[Persistence] Corrupted snapshot for ${boardId} — deleting and starting fresh:`, applyErr);
+      await getServiceClient()
+        .from('board_snapshots')
+        .delete()
+        .eq('board_id', boardId);
+      return false;
+    }
+
     console.log(`[Persistence] Snapshot loaded for board ${boardId}`);
     return true;
   } catch (err) {
@@ -65,13 +80,16 @@ export async function saveSnapshot(boardId: string, doc: Y.Doc): Promise<void> {
   try {
     const supabase = getServiceClient();
     const state = Y.encodeStateAsUpdate(doc);
+    // Encode as PostgreSQL hex-format BYTEA string (\xdeadbeef…) so PostgREST
+    // stores the actual binary bytes rather than a JSON-serialised Buffer object.
+    const hexState = '\\x' + Buffer.from(state).toString('hex');
 
     const { error } = await supabase
       .from('board_snapshots')
       .upsert(
         {
           board_id: boardId,
-          yjs_state: Buffer.from(state),
+          yjs_state: hexState,
           snapshot_at: new Date().toISOString(),
         },
         { onConflict: 'board_id' },

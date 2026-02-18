@@ -11,6 +11,8 @@ export function Toolbar() {
     { id: 'rectangle', label: 'Rectangle', icon: '▭' },
     { id: 'circle', label: 'Circle', icon: '○' },
     { id: 'line', label: 'Line', icon: '╱' },
+    { id: 'connector', label: 'Connector', icon: '↗' },
+    { id: 'frame', label: 'Frame', icon: '⬚' },
     { id: 'text', label: 'Text', icon: 'T' },
   ] as const;
 

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 interface UIState {
-  selectedTool: 'select' | 'sticky' | 'rectangle' | 'circle' | 'line' | 'text';
+  selectedTool: 'select' | 'sticky' | 'rectangle' | 'circle' | 'line' | 'connector' | 'frame' | 'text';
   zoom: number;
   pan: { x: number; y: number };
   setSelectedTool: (tool: UIState['selectedTool']) => void;
