@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useRef } from 'react';
 import { Group, Rect, Text } from 'react-konva';
 import Konva from 'konva';
 
@@ -13,31 +13,38 @@ interface FrameProps {
   title: string;
   fillColor: string;
   strokeColor: string;
+  rotation?: number;
   isSelected: boolean;
   onSelect: (id: string) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onDoubleClick: (id: string) => void;
+  onTransformEnd?: (id: string) => void;
 }
 
-export function Frame({
-  id,
-  x,
-  y,
-  width,
-  height,
-  title,
-  fillColor,
-  strokeColor,
-  isSelected,
-  onSelect,
-  onDragEnd,
-  onDoubleClick,
-}: FrameProps): React.ReactElement {
-  const groupRef = useRef<Konva.Group>(null);
+export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
+  {
+    id,
+    x,
+    y,
+    width,
+    height,
+    title,
+    fillColor,
+    strokeColor,
+    rotation,
+    isSelected,
+    onSelect,
+    onDragEnd,
+    onDoubleClick,
+    onTransformEnd,
+  },
+  ref,
+): React.ReactElement {
+  const internalRef = useRef<Konva.Group>(null);
 
   // Disable stage dragging while dragging this frame (same pattern as StickyNote/Shape)
   useEffect(() => {
-    const group = groupRef.current;
+    const group = internalRef.current;
     if (!group) return;
 
     const stage = group.getStage();
@@ -59,11 +66,22 @@ export function Frame({
     };
   }, []);
 
+  // Merge the internal ref and the forwarded ref onto the same node
+  const mergeRef = (node: Konva.Group | null): void => {
+    (internalRef as React.MutableRefObject<Konva.Group | null>).current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as React.MutableRefObject<Konva.Group | null>).current = node;
+    }
+  };
+
   return (
     <Group
-      ref={groupRef}
+      ref={mergeRef}
       x={x}
       y={y}
+      rotation={rotation ?? 0}
       draggable
       onClick={() => onSelect(id)}
       onTap={() => onSelect(id)}
@@ -73,6 +91,7 @@ export function Frame({
         const node = e.target;
         onDragEnd(id, node.x(), node.y());
       }}
+      onTransformEnd={() => onTransformEnd?.(id)}
     >
       {/* Title label above the frame */}
       <Text
@@ -96,4 +115,4 @@ export function Frame({
       />
     </Group>
   );
-}
+});

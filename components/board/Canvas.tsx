@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Stage, Layer } from 'react-konva';
+import { Stage, Layer, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 import * as Y from 'yjs';
@@ -23,6 +23,8 @@ import { Connector } from './Connector';
 import { createYjsProvider } from '@/lib/yjs/provider';
 import { createCursorSocket, emitCursorMove } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
+import { normalizeGeometry } from '@/lib/utils/geometry';
+import { loadViewport, saveViewport } from '@/lib/utils/viewport-storage';
 
 interface CanvasProps {
   boardId: string;
@@ -50,7 +52,10 @@ function getUserColor(userId: string): string {
 
 export function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
+  const transformerRef = useRef<Konva.Transformer>(null);
+  const shapeRefs = useRef<Map<string, Konva.Node>>(new Map());
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [viewportReady, setViewportReady] = useState(false);
   const { zoom, pan, setZoom, setPan, selectedTool, setSelectedTool } = useUIStore();
 
   // Yjs and Socket.io connection state
@@ -100,6 +105,23 @@ export function Canvas({ boardId }: CanvasProps) {
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
+
+  // Rehydrate viewport from localStorage when the board first loads
+  useEffect(() => {
+    const saved = loadViewport(boardId);
+    setZoom(saved.zoom);
+    setPan(saved.pan);
+    setViewportReady(true);
+  }, [boardId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced persist: write viewport to localStorage 150ms after the last change
+  useEffect(() => {
+    if (!viewportReady) return; // skip the initial render before rehydration completes
+    const timer = setTimeout(() => {
+      saveViewport(boardId, { zoom, pan });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [boardId, zoom, pan, viewportReady]);
 
   // Handle zoom with mouse wheel
   const handleWheel = (e: KonvaEventObject<WheelEvent>): void => {
@@ -487,6 +509,51 @@ export function Canvas({ boardId }: CanvasProps) {
     console.log('[Canvas] Updated position:', id, { x, y });
   };
 
+  // Attach/detach Transformer when the selected object changes
+  useEffect(() => {
+    const tr = transformerRef.current;
+    if (!tr) return;
+
+    const selected = boardObjects.find((o) => o.id === selectedObjectId);
+    // Lines and connectors don't get resize/rotate handles
+    const excluded = !selected || selected.type === 'line' || selected.type === 'connector';
+    const node = selectedObjectId ? shapeRefs.current.get(selectedObjectId) : undefined;
+
+    tr.nodes(node && !excluded ? [node] : []);
+    tr.getLayer()?.batchDraw();
+  }, [selectedObjectId, boardObjects]);
+
+  // Called by each object after the Transformer interaction ends
+  const handleTransformEnd = (id: string): void => {
+    const node = shapeRefs.current.get(id);
+    if (!node || !yDoc) return;
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    const obj = objects.get(id);
+    if (!obj) return;
+
+    const { width, height } = normalizeGeometry(
+      obj.width,
+      obj.height,
+      node.scaleX(),
+      node.scaleY(),
+    );
+
+    // Reset Konva scale to 1 — actual size now lives in Yjs
+    node.scaleX(1);
+    node.scaleY(1);
+
+    updateObject(objects, id, {
+      x: node.x(),
+      y: node.y(),
+      width,
+      height,
+      rotation: node.rotation(),
+    });
+
+    console.log('[Canvas] Transform applied:', id, { width, height, rotation: node.rotation() });
+  };
+
   // Handle double-click (enter text editing mode)
   const handleDoubleClick = (id: string): void => {
     setEditingObjectId(id);
@@ -636,8 +703,8 @@ export function Canvas({ boardId }: CanvasProps) {
     console.log(`[Canvas] Created ${type}:`, newShape.id);
   };
 
-  if (dimensions.width === 0 || dimensions.height === 0) {
-    return null; // Avoid rendering with 0 dimensions
+  if (dimensions.width === 0 || dimensions.height === 0 || !viewportReady) {
+    return null; // Wait for dimensions and viewport rehydration before rendering
   }
 
   // Get editing object details
@@ -742,11 +809,16 @@ export function Canvas({ boardId }: CanvasProps) {
             .map((obj) => (
               <Frame
                 key={obj.id}
+                ref={(node) => {
+                  if (node) shapeRefs.current.set(obj.id, node);
+                  else shapeRefs.current.delete(obj.id);
+                }}
                 id={obj.id}
                 x={obj.x}
                 y={obj.y}
                 width={obj.width}
                 height={obj.height}
+                rotation={obj.rotation}
                 title={String(obj.properties.title ?? 'Frame')}
                 fillColor={String(obj.properties.fillColor ?? 'rgba(219,234,254,0.25)')}
                 strokeColor={String(obj.properties.strokeColor ?? '#3b82f6')}
@@ -754,6 +826,7 @@ export function Canvas({ boardId }: CanvasProps) {
                 onSelect={handleSelectObject}
                 onDragEnd={handleObjectDragEnd}
                 onDoubleClick={handleDoubleClick}
+                onTransformEnd={handleTransformEnd}
               />
             ))}
 
@@ -783,12 +856,17 @@ export function Canvas({ boardId }: CanvasProps) {
             .map((obj) => (
               <Shape
                 key={obj.id}
+                ref={(node) => {
+                  if (node) shapeRefs.current.set(obj.id, node);
+                  else shapeRefs.current.delete(obj.id);
+                }}
                 id={obj.id}
                 type={obj.type as 'rectangle' | 'circle' | 'line'}
                 x={obj.x}
                 y={obj.y}
                 width={obj.width}
                 height={obj.height}
+                rotation={obj.rotation}
                 fillColor={String(obj.properties.fillColor ?? '#93c5fd')}
                 strokeColor={String(obj.properties.strokeColor ?? '#1d4ed8')}
                 strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
@@ -797,6 +875,7 @@ export function Canvas({ boardId }: CanvasProps) {
                 isSelected={obj.id === selectedObjectId && !editingObjectId}
                 onSelect={handleSelectObject}
                 onDragEnd={handleObjectDragEnd}
+                onTransformEnd={handleTransformEnd}
               />
             ))}
 
@@ -842,19 +921,37 @@ export function Canvas({ boardId }: CanvasProps) {
             .map((obj) => (
               <StickyNote
                 key={obj.id}
+                ref={(node) => {
+                  if (node) shapeRefs.current.set(obj.id, node);
+                  else shapeRefs.current.delete(obj.id);
+                }}
                 id={obj.id}
                 x={obj.x}
                 y={obj.y}
                 width={obj.width}
                 height={obj.height}
+                rotation={obj.rotation}
                 text={String(obj.properties.text || '')}
                 color={String(obj.properties.color || '#ffeb3b')}
                 isSelected={obj.id === selectedObjectId && !editingObjectId}
                 onSelect={handleSelectObject}
                 onDragEnd={handleObjectDragEnd}
                 onDoubleClick={handleDoubleClick}
+                onTransformEnd={handleTransformEnd}
               />
             ))}
+
+          {/* Transformer — single shared instance, attached to selected node via useEffect */}
+          <Transformer
+            ref={transformerRef}
+            keepRatio={false}
+            rotateEnabled={true}
+            boundBoxFunc={(oldBox, newBox) => {
+              // Enforce minimum size during live drag so the box never inverts
+              if (newBox.width < 20 || newBox.height < 20) return oldBox;
+              return newBox;
+            }}
+          />
         </Layer>
 
         {/* Remote cursors layer — isolated to prevent re-rendering sticky notes */}
