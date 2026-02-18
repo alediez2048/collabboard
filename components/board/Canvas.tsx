@@ -191,48 +191,61 @@ export function Canvas({ boardId }: CanvasProps) {
   useEffect(() => {
     let cleanupProvider: WebsocketProvider | null = null;
     let cleanupSocket: Socket | null = null;
+    let cancelled = false;
 
     const initSync = async (): Promise<void> => {
       try {
-        // Get Supabase session token
         const supabase = createClient();
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session) {
-          console.error('[Canvas] No active session, cannot connect to sync services');
+        if (!session || cancelled) {
+          if (cancelled) console.log('[Canvas] initSync cancelled by cleanup');
+          else console.error('[Canvas] No active session, cannot connect to sync services');
           return;
         }
 
         console.log('[Canvas] Initializing real-time sync...');
 
-        // Create Yjs document
         const { doc } = createBoardDoc();
-        setYDoc(doc);
 
-        // Create y-websocket provider
         const yjsProvider = createYjsProvider({
           boardId,
           doc,
           token: session.access_token,
         });
 
-        // Listen for connection status
+        // If cleanup ran while we were awaiting getSession(), tear down immediately
+        if (cancelled) {
+          yjsProvider.destroy();
+          return;
+        }
+
         yjsProvider.on('status', (event: { status: string }) => {
           const isConnected = event.status === 'connected';
           setYjsConnected(isConnected);
           console.log(`[Canvas] Yjs status: ${event.status}`);
         });
 
+        // When the initial sync completes, the server has applied the persisted
+        // snapshot to our doc via the Yjs sync protocol. Re-read the objects map
+        // so React state reflects the loaded data. Without this, the Y.Map
+        // observer (attached to an initially-empty doc) may not fire again
+        // after the sync fills it.
         yjsProvider.on('sync', (isSynced: boolean) => {
           console.log(`[Canvas] Yjs sync: ${isSynced ? 'synced' : 'syncing'}`);
+          if (isSynced && !cancelled) {
+            const objects = doc.getMap<BoardObject>('objects');
+            const allObjects = getAllObjects(objects);
+            setBoardObjects(allObjects);
+          }
         });
 
+        setYDoc(doc);
         setProvider(yjsProvider);
         cleanupProvider = yjsProvider;
 
-        // Create Socket.io connection for cursors
         const cursorSocket = createCursorSocket({
           boardId,
           token: session.access_token,
@@ -259,8 +272,8 @@ export function Canvas({ boardId }: CanvasProps) {
 
     initSync();
 
-    // Cleanup on unmount
     return () => {
+      cancelled = true;
       console.log('[Canvas] Cleaning up connections...');
       if (cleanupProvider) {
         cleanupProvider.destroy();

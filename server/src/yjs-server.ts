@@ -19,6 +19,12 @@ const awarenessMap = new Map<string, awarenessProtocol.Awareness>();
 // Track connected clients per room to detect first-connect and last-disconnect
 const roomClients = new Map<string, Set<WebSocket>>();
 
+// Per-room promise that resolves once the initial snapshot has been loaded.
+// ALL connections to a room must await this before sending sync messages,
+// otherwise a second connection can sync an empty doc to the client while
+// the first connection is still fetching the snapshot from Supabase.
+const roomLoadPromises = new Map<string, Promise<void>>();
+
 function getOrCreateDoc(roomName: string): Y.Doc {
   let doc = docs.get(roomName);
 
@@ -88,11 +94,21 @@ export function setupYjsServer(wss: WebSocketServer): void {
       const roomSet = roomClients.get(roomName)!;
       const isFirstClient = roomSet.size === 0;
       roomSet.add(ws);
+      const connId = Math.random().toString(36).slice(2, 8);
 
-      // Load snapshot only for the first client (doc is still empty at this point)
+      // The first connection kicks off the snapshot load; all subsequent
+      // connections wait for that same promise so nobody syncs an empty doc.
       if (isFirstClient) {
-        await loadSnapshot(roomName, doc);
-        console.log(`[Yjs] First client in room ${roomName} — snapshot loaded`);
+        const loadPromise = loadSnapshot(roomName, doc).then(() => {
+          console.log(`[Yjs] First client in room ${roomName} — snapshot loaded`);
+        });
+        roomLoadPromises.set(roomName, loadPromise);
+      }
+
+      // Block until the snapshot is fully loaded before sending any sync messages
+      const pending = roomLoadPromises.get(roomName);
+      if (pending) {
+        await pending;
       }
 
       // Wire up debounced snapshot save for this room
@@ -109,6 +125,19 @@ export function setupYjsServer(wss: WebSocketServer): void {
       encoding.writeVarUint(encoder, messageSync);
       syncProtocol.writeSyncStep1(encoder, doc);
       ws.send(encoding.toUint8Array(encoder));
+
+      // Proactively send the full document state as an update.
+      // In practice we've observed clients that never apply the server snapshot
+      // after reconnect (empty board after hard refresh) even though the server
+      // doc has objects. Sending a full update ensures the client receives state
+      // even if the sync step handshake doesn't complete as expected.
+      const fullState = Y.encodeStateAsUpdate(doc);
+      if (fullState.length > 0) {
+        const fullEncoder = encoding.createEncoder();
+        encoding.writeVarUint(fullEncoder, messageSync);
+        syncProtocol.writeUpdate(fullEncoder, fullState);
+        ws.send(encoding.toUint8Array(fullEncoder));
+      }
 
       const awarenessStates = awareness.getStates();
       if (awarenessStates.size > 0) {
@@ -134,7 +163,6 @@ export function setupYjsServer(wss: WebSocketServer): void {
             const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, doc, null);
             
             if (syncMessageType === syncProtocol.messageYjsSyncStep1 || syncMessageType === syncProtocol.messageYjsUpdate) {
-              // Broadcast to all other clients in the room
               const update = encoding.toUint8Array(encoder);
               if (update.length > 1) {
                 wss.clients.forEach((client) => {
@@ -237,10 +265,18 @@ export function setupYjsServer(wss: WebSocketServer): void {
             // Last client — cancel the pending debounce and save a final snapshot immediately
             debounceSave.cancel();
             roomClients.delete(roomName);
-            saveSnapshot(roomName, doc).catch((err) => {
+            roomLoadPromises.delete(roomName);
+            saveSnapshot(roomName, doc).then(() => {
+              // Evict the in-memory doc after saving so the next first-client
+              // connection loads a fresh snapshot from Supabase rather than
+              // reusing a potentially stale in-memory doc.
+              docs.delete(roomName);
+              awarenessMap.delete(roomName);
+              console.log(`[Yjs] Room ${roomName} evicted from memory`);
+            }).catch((err) => {
               console.error(`[Yjs] Final snapshot save error for room ${roomName}:`, err);
             });
-            console.log(`[Yjs] Last client left room ${roomName} — final snapshot saved`);
+            console.log(`[Yjs] Last client left room ${roomName} — final snapshot saving...`);
           }
         }
 
