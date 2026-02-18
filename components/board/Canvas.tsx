@@ -141,8 +141,10 @@ export function Canvas({ boardId }: CanvasProps) {
     setPan(newPos);
   };
 
-  // Handle pan on drag end
+  // Handle pan on drag end — only update pan when the Stage itself was dragged,
+  // not when a child object's dragend event bubbles up to the Stage.
   const handleDragEnd = (e: KonvaEventObject<DragEvent>): void => {
+    if (e.target !== stageRef.current) return;
     const stage = e.target as Konva.Stage;
     setPan({ x: stage.x(), y: stage.y() });
   };
