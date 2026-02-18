@@ -14,6 +14,12 @@ Each ticket entry follows this standardized structure:
 ```
 ## TICKET-XX: [Title] [Status Emoji]
 
+### 🧠 Plain-English Summary
+- What was done
+- What it means
+- Success looked like
+- How it works (simple)
+
 ### 📋 Metadata
 - Status, Date, Time (vs Estimate), Branch, Commit
 
@@ -48,9 +54,13 @@ Each ticket entry follows this standardized structure:
 - Key takeaways and insights
 ```
 
----
-
 ## TICKET-01: Project Scaffold + Auth ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Set up the app foundation, login/signup, protected pages, and board creation.
+- **What it means:** Users can securely enter the product and start collaborating in their own board space.
+- **Success looked like:** A user could log in, create a board, open it, and blocked routes redirected to login.
+- **How it works (simple):** Supabase handles identity, Next.js protects private pages, and board records are saved so each user opens their own workspace.
 
 ### 📋 Metadata
 - **Status:** Complete
@@ -173,6 +183,12 @@ Each ticket entry follows this standardized structure:
 
 ## TICKET-02: Konva Canvas with Pan/Zoom ✅
 
+### 🧠 Plain-English Summary
+- **What was done:** Added a full-screen interactive canvas with pan and zoom.
+- **What it means:** The board behaves like an infinite workspace instead of a fixed page.
+- **Success looked like:** Panning and zooming felt smooth and reliable with no visual glitches.
+- **How it works (simple):** Konva draws the board in the browser and updates camera position/zoom as you drag or scroll.
+
 ### 📋 Metadata
 - **Status:** Complete
 - **Completed:** Feb 16, 2026
@@ -292,6 +308,12 @@ Prevents hydration mismatch (Canvas uses window APIs)
 ---
 
 ## TICKET-03: y-websocket Server + Yjs Provider ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Connected all users to a shared live board engine using Yjs for board objects and Socket.io for fast cursor events.
+- **What it means:** Everyone sees the same board state in near real time; Yjs keeps object data consistent while Socket.io handles lightweight live signals.
+- **Success looked like:** Two users on the same board could connect and receive each other's updates without manual refresh.
+- **How it works (simple):** Yjs is the shared source of truth for board objects, while Socket.io sends quick transient events like cursor movement; the server relays both to connected users.
 
 ### 📋 Metadata
 - **Status:** Complete
@@ -479,6 +501,12 @@ useEffect(() => {
 ---
 
 ## TICKET-04: Sticky Note CRUD via Yjs ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Added sticky notes with create, move, edit text, recolor, and delete.
+- **What it means:** The first complete board object workflow is now collaborative and live.
+- **Success looked like:** Sticky note actions from one user appeared quickly for other users on the same board.
+- **How it works (simple):** Every sticky note action updates the shared Yjs board state, so all connected browsers redraw the same note changes instantly.
 
 ### 📋 Metadata
 - **Status:** Complete
@@ -791,6 +819,12 @@ Flakiness expected for E2E due to network/async. Auto-retry handles this.
 
 ## TICKET-05: Multiplayer Cursors via Socket.io ✅
 
+### 🧠 Plain-English Summary
+- **What was done:** Added real-time remote cursors and board sharing/join flow.
+- **What it means:** Users can see where teammates are pointing and can join shared boards easily, which makes collaboration feel immediate.
+- **Success looked like:** User A and User B could see each other's cursor movement live, with correct labels and no self-echo.
+- **How it works (simple):** The app sends small cursor position messages many times per second through Socket.io, and each client renders other users' cursors as overlays.
+
 ### 📋 Metadata
 - **Status:** Complete
 - **Completed:** Feb 17, 2026
@@ -981,6 +1015,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 
 ## TICKET-06: Presence Awareness
 
+### 🧠 Plain-English Summary
+- **What was done:** Added a live presence bar showing who is currently on the board.
+- **What it means:** Teams can immediately see who is online and active during collaboration.
+- **Success looked like:** Opening/closing tabs updated the online list correctly within a few seconds.
+- **How it works (simple):** Yjs awareness publishes each user's online state; the UI listens to that list and shows current participants.
+
 **Branch:** `feat/presence`  
 **Date:** 2026-02-17  
 **Time Estimate:** 1 hour  
@@ -1038,6 +1078,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 
 ## TICKET-07: State Persistence (Yjs → Supabase)
 
+### 🧠 Plain-English Summary
+- **What was done:** Added automatic board saving and restoring.
+- **What it means:** Live work from Yjs is periodically snapshotted so users do not lose progress after refreshes, disconnects, or full browser closes.
+- **Success looked like:** Objects were still present after everyone left and later reopened the board.
+- **How it works (simple):** The server regularly stores a compressed snapshot of the shared board and reloads it when users return.
+
 **Date:** Feb 17, 2026  
 **Branch:** `feat/persistence` → merged to `main`  
 **Time:** ~1.5 hours
@@ -1093,6 +1139,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 ---
 
 ## TICKET-08: Shapes (Rectangle, Circle, Line)
+
+### 🧠 Plain-English Summary
+- **What was done:** Added shape drawing tools (rectangle, circle, line) with move and styling behavior.
+- **What it means:** The board can now support diagrams and visual mapping beyond sticky notes.
+- **Success looked like:** Users could draw and edit shapes, and teammates saw the same updates live.
+- **How it works (simple):** Drag gestures create shape objects in shared state, and any updates to those objects sync to all users the same way as sticky notes.
 
 **Date:** Feb 17, 2026  
 **Branch:** `feat/persistence` (committed alongside TICKET-07) → merged to `main`  
@@ -1150,6 +1202,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 ---
 
 ## TICKET-09: Connectors + Frames ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Added connectors between objects and frames for grouping content.
+- **What it means:** The board supports relationships and structure, not just isolated objects.
+- **Success looked like:** Connectors stayed attached as objects moved, and frames helped organize areas clearly.
+- **How it works (simple):** Connectors store which objects they link to, and frames define visual containers so movement and layout stay organized across collaborators.
 
 ### 📋 Metadata
 - **Status:** Complete
@@ -1210,6 +1268,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 ---
 
 ## TICKET-10: Selection + Transforms ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Added object selection, resize/rotate controls, and viewport memory per board.
+- **What it means:** Editing feels professional and users can return to the same board viewpoint they left.
+- **Success looked like:** Transform actions synced correctly and zoom/pan restored after refresh.
+- **How it works (simple):** Selection tools update object dimensions/rotation in shared state, and the app also saves each board's last zoom/pan locally for quick return.
 
 ### 📋 Metadata
 - **Status:** Complete
