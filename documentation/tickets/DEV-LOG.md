@@ -1282,6 +1282,15 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 ### 🚀 Next Steps (TICKET-11)
 - AI Agent: Basic Commands (create objects, move objects via natural language)
 
+### 🧭 TICKET-11 Prep (Feb 18, 2026)
+- Created `documentation/tickets/TICKET-11-PRIMER.md` for a fresh-agent handoff
+- Primer includes:
+  - copy-paste kickoff context
+  - required implementation files (`AICommandBar`, API route, `tools.ts`, `scoped-state.ts`, `executor.ts`)
+  - scoped-state and 50-object cap constraints
+  - testing checklist and acceptance criteria aligned to PRD
+- Goal: reduce restart/context overhead and keep TICKET-11 implementation aligned to architecture contracts
+
 ---
 
 ## Summary After Completed Tickets
