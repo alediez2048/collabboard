@@ -160,18 +160,9 @@ export function setupYjsServer(wss: WebSocketServer): void {
           if (messageType === messageSync) {
             const encoder = encoding.createEncoder();
             encoding.writeVarUint(encoder, messageSync);
-            const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, doc, null);
-            
-            if (syncMessageType === syncProtocol.messageYjsSyncStep1 || syncMessageType === syncProtocol.messageYjsUpdate) {
-              const update = encoding.toUint8Array(encoder);
-              if (update.length > 1) {
-                wss.clients.forEach((client) => {
-                  if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    client.send(update);
-                  }
-                });
-              }
-            }
+            // Pass `ws` as the origin so the doc update handler can avoid
+            // echoing the update back to this same connection.
+            syncProtocol.readSyncMessage(decoder, encoder, doc, ws);
 
             // Send response
             if (encoding.length(encoder) > 1) {
@@ -229,12 +220,16 @@ export function setupYjsServer(wss: WebSocketServer): void {
           awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients)
         );
         const message = encoding.toUint8Array(encoder);
-        
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-          }
-        });
+
+        // Broadcast awareness only to clients in this room
+        const clientsInRoom = roomClients.get(roomName);
+        if (clientsInRoom) {
+          clientsInRoom.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(message);
+            }
+          });
+        }
       };
       awareness.on('update', awarenessChangeHandler);
 
