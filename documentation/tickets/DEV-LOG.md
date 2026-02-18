@@ -1149,21 +1149,152 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 
 ---
 
+## TICKET-09: Connectors + Frames ✅
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 17–18, 2026
+- **Branch:** `main` (iterative hardening + fixes)
+- **Key Commits:** `ef865c6`, `558c213`, `2a86679`, `733047f`
+
+### 🎯 Scope
+- ✅ **Connectors**: arrow objects connecting two existing board objects (tracks endpoints reactively)
+- ✅ **Frames**: drag-to-draw labeled regions with editable title
+- ✅ **Toolbar updates**: added connector/frame tools
+- ✅ **Board deletion**: delete boards from dashboard (owner-only; shared boards show delete only for creator)
+- ✅ **Stability hardening**: persistence-on-refresh and presence correctness across multiple accounts
+
+### 🏆 Key Achievements
+- **New object types shipped**: connectors + frames are first “relationship/grouping” primitives
+- **Persistence hardened**: boards reliably reload after hard refresh and reconnect cycles
+- **Presence corrected**: awareness events are scoped to a board room (no cross-board contamination)
+
+### 🔧 Technical Implementation
+
+**Persistence hardening (refresh + reconnect):**
+- Server gates room sync on snapshot load and evicts in-memory docs on last disconnect
+- Server proactively sends a full Yjs state update on connect (guards against missed sync handshake edge cases)
+- Client uses a StrictMode-safe init pattern and refreshes React state from Yjs after sync
+
+**Presence hardening (room scoping):**
+- Server broadcasts awareness updates only to clients connected to the same `roomName`
+
+### ⚠️ Issues & Solutions
+| Issue | Solution |
+|---|---|
+| Objects sometimes vanished after hard refresh | Added server-side “load-before-sync” gating + full-state update on connect; client init made StrictMode-safe |
+| Presence showed incorrect counts across boards | Scoped awareness broadcast to room clients only |
+| Viewport jumped when dragging objects | Stage `onDragEnd` was receiving bubbled drag events from child nodes; guarded handler to only update pan when Stage itself is dragged |
+
+### ✅ Testing
+- ✅ `npx vitest run` — **51/51** passing
+- ✅ `npm run build` (frontend) — success
+- ✅ `server/npm run build` — success
+- ✅ Manual: multi-account board session shows correct presence; hard refresh retains objects
+
+### 📁 Files Changed (high level)
+- `components/board/Canvas.tsx`
+- `components/board/Toolbar.tsx`
+- `components/board/Connector.tsx`
+- `components/board/Frame.tsx`
+- `tests/unit/connectors-frames.test.ts`
+- `app/api/boards/[id]/route.ts`
+- `components/delete-board-button.tsx`
+- `app/page.tsx`
+- `server/src/persistence.ts`
+- `server/src/yjs-server.ts`
+
+### 🚀 Next Steps (TICKET-10)
+- Implement selection, multi-select, and Konva Transformer-based resize/rotate for supported objects
+
+---
+
+## TICKET-10: Selection + Transforms ✅
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 18, 2026
+- **Branch:** `feat/selection-transforms` → merged to `main`
+
+### 🎯 Scope
+- ✅ **Selection**: click-to-select for all object types; click empty canvas to deselect
+- ✅ **Transformer**: Konva Transformer (resize + rotate) for sticky notes, rectangles, circles, frames
+- ✅ **Lines + connectors**: selection highlight only — Transformer excluded by design
+- ✅ **Rotation**: `rotation` prop flows Yjs → all components; existing objects render correctly
+- ✅ **Geometry normalization**: scale-to-px conversion with 20px minimum size, enforced during live drag via `boundBoxFunc`
+- ✅ **Viewport persistence**: zoom + pan saved per board to localStorage; restored on refresh with no flash-to-center
+
+### 🏆 Key Achievements
+- **Transformer pattern established**: single shared `<Transformer>` in Layer, attached to selected node via `shapeRefs` Map + `useEffect`
+- **forwardRef on all object components**: Canvas holds direct Konva node references without breaking existing drag/select behavior
+- **Viewport POV persists**: users return to exact zoom + pan after hard refresh or browser restart
+- **TDD maintained**: tests written before implementation for both geometry helpers
+
+### 🔧 Technical Implementation
+
+**`lib/utils/geometry.ts` (new):**
+- `normalizeGeometry(width, height, scaleX, scaleY, minSize)` — converts Konva scale factors to absolute px, clamps to minSize
+- Called in `handleTransformEnd` after Transformer interaction; Konva scale is reset to 1 so Yjs stays source of truth
+
+**`lib/utils/viewport-storage.ts` (new):**
+- `saveViewport(boardId, state)` / `loadViewport(boardId)` — localStorage with board-scoped key (`canvasViewport:<boardId>`)
+- Validates shape on load, clamps zoom to `[0.1, 10]`, falls back to defaults on any parse failure
+- No-ops silently when localStorage is unavailable
+
+**`StickyNote.tsx`, `Shape.tsx`, `Frame.tsx`:**
+- Converted to `forwardRef<Konva.Group>` — Canvas populates `shapeRefs` map via ref callbacks
+- Added `rotation` prop (applied to Konva Group) and `onTransformEnd` prop
+- Internal `useEffect` for dragstart/dragend stage toggle preserved via merged ref pattern
+
+**`Canvas.tsx`:**
+- `shapeRefs: useRef<Map<string, Konva.Node>>` — lookup from object id to Konva node
+- `transformerRef: useRef<Konva.Transformer>` — single shared Transformer in Layer
+- `useEffect([selectedObjectId, boardObjects])` — attaches/detaches Transformer; skips lines and connectors
+- `handleTransformEnd(id)` — reads scaleX/scaleY, calls `normalizeGeometry`, resets scale to 1, writes `x/y/width/height/rotation` to Yjs
+- `useEffect([boardId])` — rehydrates zoom + pan from localStorage on mount; gates Stage render until ready
+- `useEffect([boardId, zoom, pan, viewportReady])` — debounced (150ms) persist on every viewport change
+
+### ⚠️ Issues & Solutions
+| Issue | Solution |
+|---|---|
+| forwardRef + internal dragstart ref needed on same node | Merged ref pattern: callback ref populates both `internalRef` and forwarded ref in one assignment |
+| Flash-to-center on refresh before hydration | `viewportReady` state gates Stage render; rehydration runs synchronously from localStorage before first draw |
+| Transformer scale vs Yjs width/height mismatch | On `transformEnd`: read scaleX/scaleY, compute new px dimensions, reset scale to 1, write to Yjs — Konva never holds truth |
+
+### ✅ Testing
+- ✅ `npx vitest run` — **69/69** passing (8 test files)
+- ✅ `npm run build` — success, zero TypeScript errors
+- ✅ Lint — zero errors on all modified files
+- ✅ Manual: resize/rotate syncs to second browser; hard refresh restores geometry + viewport
+
+### 📁 Files Changed
+| File | Action |
+|---|---|
+| `components/board/Canvas.tsx` | Modified |
+| `components/board/StickyNote.tsx` | Modified — forwardRef, rotation, onTransformEnd |
+| `components/board/Shape.tsx` | Modified — forwardRef, rotation, onTransformEnd |
+| `components/board/Frame.tsx` | Modified — forwardRef, rotation, onTransformEnd |
+| `lib/utils/geometry.ts` | Created |
+| `lib/utils/viewport-storage.ts` | Created |
+| `tests/unit/transforms.test.ts` | Created — 7 tests |
+| `tests/unit/viewport-storage.test.ts` | Created — 11 tests |
+
+### 🚀 Next Steps (TICKET-11)
+- AI Agent: Basic Commands (create objects, move objects via natural language)
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 8/15 (53%)
-- **Total Time Spent:** ~15.5 hours
-- **Time Estimate:** ~15 hours planned
-- **Variance:** +0.5 hours
+- **Tickets Completed:** 10/15 (67%)
+- **Build:** ✅ Clean (frontend + server)
+- **Tests:** ✅ 69/69 passing
+- **Lint:** ✅ Zero errors
 
 ### ✅ Current Status
 - **Sprint:** On track — Feature Expansion phase
-- **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ 47/47 passing
-- **Lint:** ✅ Zero errors
 - **Deployment:** ✅ Live on Vercel (auto-deploy from main)
-- **Servers:** ✅ Both running (ports 3000, 4000)
 
 ### 🏆 Major Milestones
 1. ✅ Full authentication system
@@ -1174,11 +1305,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 6. ✅ Presence awareness (online user avatars)
 7. ✅ State persistence (Yjs → Supabase, survives server restart)
 8. ✅ Shapes (rectangle, circle, line) with drag-to-draw
+9. ✅ Connectors + frames (relationship + grouping primitives)
+10. ✅ Selection + Transforms (resize/rotate via Konva Transformer, viewport persistence)
 
 ### 📈 Next Priorities
-1. **TICKET-09:** Connectors + Frames (today)
-2. **TICKET-10:** Selection + Transforms (today)
-3. **MVP Demo** — after TICKET-10
+1. **TICKET-11:** AI Agent: Basic Commands
+2. **TICKET-12:** AI Agent: Complex Commands
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early
@@ -1189,6 +1321,8 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 6. **Middleware Pattern**: Auth belongs in middleware, not handlers — applies to both HTTP and WebSocket
 7. **Controlled vs Imperative UI**: Mixing controlled React props with imperative Konva calls causes double-renders — pick one path per concern
 8. **Awareness ≠ Doc**: Yjs awareness is per-connection (clientId), not per-user (userId) — always deduplicate by userId before rendering
+9. **forwardRef + internal refs**: when a component needs both an internal ref and an external forwarded ref on the same node, use a merged callback ref pattern
+10. **Viewport hydration order matters**: gate Stage render until localStorage is read to prevent flash-to-center before state applies
 
 ---
 

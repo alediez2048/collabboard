@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useRef } from 'react';
 import { Group, Rect, Circle, Line } from 'react-konva';
 import Konva from 'konva';
 
@@ -14,34 +14,41 @@ interface ShapeProps {
   fillColor: string;
   strokeColor: string;
   strokeWidth: number;
-  x2?: number; // line end point (absolute canvas coords)
+  x2?: number;
   y2?: number;
+  rotation?: number;
   isSelected: boolean;
   onSelect: (id: string) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  onTransformEnd?: (id: string) => void;
 }
 
-export function Shape({
-  id,
-  type,
-  x,
-  y,
-  width,
-  height,
-  fillColor,
-  strokeColor,
-  strokeWidth,
-  x2,
-  y2,
-  isSelected,
-  onSelect,
-  onDragEnd,
-}: ShapeProps): React.ReactElement {
-  const groupRef = useRef<Konva.Group>(null);
+export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
+  {
+    id,
+    type,
+    x,
+    y,
+    width,
+    height,
+    fillColor,
+    strokeColor,
+    strokeWidth,
+    x2,
+    y2,
+    rotation,
+    isSelected,
+    onSelect,
+    onDragEnd,
+    onTransformEnd,
+  },
+  ref,
+): React.ReactElement {
+  const internalRef = useRef<Konva.Group>(null);
 
   // Disable stage dragging while dragging this shape (same pattern as StickyNote)
   useEffect(() => {
-    const group = groupRef.current;
+    const group = internalRef.current;
     if (!group) return;
 
     const stage = group.getStage();
@@ -63,20 +70,29 @@ export function Shape({
     };
   }, []);
 
+  // Merge the internal ref and the forwarded ref onto the same node
+  const mergeRef = (node: Konva.Group | null): void => {
+    (internalRef as React.MutableRefObject<Konva.Group | null>).current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as React.MutableRefObject<Konva.Group | null>).current = node;
+    }
+  };
+
   const selectionStroke = isSelected ? '#2563eb' : undefined;
   const selectionStrokeWidth = isSelected ? 3 : undefined;
 
-  // Lines are not draggable as a Group positioned at (x,y) with relative points.
-  // We position the Group at (x, y) and draw to (x2 - x, y2 - y).
   if (type === 'line') {
     const endDx = (x2 ?? x) - x;
     const endDy = (y2 ?? y) - y;
 
     return (
       <Group
-        ref={groupRef}
+        ref={mergeRef}
         x={x}
         y={y}
+        rotation={rotation ?? 0}
         draggable
         onClick={() => onSelect(id)}
         onTap={() => onSelect(id)}
@@ -84,6 +100,7 @@ export function Shape({
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
+        onTransformEnd={() => onTransformEnd?.(id)}
       >
         {/* Wider transparent hit area so the line is easier to click */}
         <Line
@@ -106,16 +123,16 @@ export function Shape({
   }
 
   if (type === 'circle') {
-    // Store x/y as bounding-box top-left; Konva Circle positions by center
     const cx = width / 2;
     const cy = height / 2;
     const radius = Math.min(width, height) / 2;
 
     return (
       <Group
-        ref={groupRef}
+        ref={mergeRef}
         x={x}
         y={y}
+        rotation={rotation ?? 0}
         draggable
         onClick={() => onSelect(id)}
         onTap={() => onSelect(id)}
@@ -123,6 +140,7 @@ export function Shape({
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
+        onTransformEnd={() => onTransformEnd?.(id)}
       >
         <Circle
           x={cx}
@@ -143,9 +161,10 @@ export function Shape({
   // Rectangle (default)
   return (
     <Group
-      ref={groupRef}
+      ref={mergeRef}
       x={x}
       y={y}
+      rotation={rotation ?? 0}
       draggable
       onClick={() => onSelect(id)}
       onTap={() => onSelect(id)}
@@ -153,6 +172,7 @@ export function Shape({
         const node = e.target;
         onDragEnd(id, node.x(), node.y());
       }}
+      onTransformEnd={() => onTransformEnd?.(id)}
     >
       <Rect
         width={width}
@@ -168,4 +188,4 @@ export function Shape({
       />
     </Group>
   );
-}
+});
