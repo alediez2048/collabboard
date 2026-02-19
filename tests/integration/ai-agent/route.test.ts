@@ -127,6 +127,7 @@ describe('POST /api/ai/command', () => {
       success: true,
       actions: [{ tool: 'createStickyNote', args: { text: 'User Research', x: 100, y: 200, color: '#ffeb3b' }, result: 'created' }],
       objectsAffected: ['obj-new-1'],
+      toolOutputs: [],
       error: undefined,
     });
 
@@ -149,6 +150,7 @@ describe('POST /api/ai/command', () => {
       success: false,
       actions: [],
       objectsAffected: [],
+      toolOutputs: [],
       error: 'Object not found on board',
     });
 
@@ -173,5 +175,39 @@ describe('POST /api/ai/command', () => {
     expect(response.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.objectsAffected).toHaveLength(0);
+  });
+
+  it('runs a follow-up completion after getBoardState-only first pass', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    mockTracing
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('getBoardState', {}) as never,
+      )
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'obj-1', x: 500, y: 300 }) as never,
+      );
+
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 1 of 1 objects' }],
+        objectsAffected: [],
+        toolOutputs: [{ toolCallId: 'call-1', tool: 'getBoardState', output: { totalObjects: 1, returnedCount: 1, objects: [{ id: 'obj-1' }] } }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'moveObject', args: { objectId: 'obj-1', x: 500, y: 300 }, result: 'Affected: obj-1' }],
+        objectsAffected: ['obj-1'],
+        toolOutputs: [{ toolCallId: 'call-1', tool: 'moveObject', output: { success: true, affectedObjectIds: ['obj-1'] } }],
+      });
+
+    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the note to x 500 y 300' }));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.objectsAffected).toEqual(['obj-1']);
+    expect(mockTracing).toHaveBeenCalledTimes(2);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 });

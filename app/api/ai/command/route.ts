@@ -5,6 +5,7 @@ import { AI_TOOLS } from '@/lib/ai-agent/tools';
 import { executeToolCalls } from '@/lib/ai-agent/executor';
 import { createTracedCompletion } from '@/lib/ai-agent/tracing';
 import type { ToolCallInput } from '@/lib/ai-agent/executor';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 const SYSTEM_PROMPT = `You are an AI assistant that controls a collaborative whiteboard called CollabBoard.
 
@@ -28,6 +29,27 @@ interface AICommandResponse {
   actions: Array<{ tool: string; args: Record<string, unknown>; result: string }>;
   objectsAffected: string[];
   error?: string;
+}
+
+function toToolCallInputs(
+  toolCalls: Array<{ id: string; type: string; function?: { name: string; arguments: string } }> | undefined,
+): ToolCallInput[] {
+  if (!toolCalls || toolCalls.length === 0) {
+    return [];
+  }
+
+  return toolCalls
+    .filter((tc): tc is { id: string; type: 'function'; function: { name: string; arguments: string } } =>
+      tc.type === 'function' && typeof tc.function?.name === 'string' && typeof tc.function?.arguments === 'string',
+    )
+    .map((tc) => ({
+      id: tc.id,
+      type: 'function',
+      function: {
+        name: tc.function.name,
+        arguments: tc.function.arguments,
+      },
+    }));
 }
 
 /**
@@ -79,14 +101,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     // Call OpenAI with tool-calling (traced via tracing adapter from 1.3 reference pattern)
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+    const baseMessages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: command.trim() },
+    ];
+
     const completion = await createTracedCompletion(
       openai,
       {
         model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: command.trim() },
-        ],
+        messages: baseMessages,
         tools: AI_TOOLS,
         tool_choice: 'auto',
       },
@@ -94,10 +118,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     );
 
     const responseMessage = completion.choices[0]?.message;
-    const toolCalls = responseMessage?.tool_calls;
+    const firstToolCalls = toToolCallInputs(
+      (responseMessage?.tool_calls as Array<{ id: string; type: string; function?: { name: string; arguments: string } }> | undefined),
+    );
 
     // No tool calls — model declined to act (command not board-related)
-    if (!toolCalls || toolCalls.length === 0) {
+    if (firstToolCalls.length === 0) {
       return NextResponse.json({
         success: true,
         actions: [],
@@ -105,28 +131,70 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       });
     }
 
-    // Execute tool calls sequentially via realtime bridge.
-    // Filter to standard function calls only (guard against custom tool call variants).
-    const toolCallInputs: ToolCallInput[] = toolCalls
-      .filter((tc): tc is typeof tc & { type: 'function'; function: { name: string; arguments: string } } =>
-        tc.type === 'function' && 'function' in tc,
-      )
-      .map((tc) => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: {
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        },
-      }));
+    const executionResult = await executeToolCalls(firstToolCalls, boardId.trim(), user.id);
 
-    const executionResult = await executeToolCalls(toolCallInputs, boardId.trim(), user.id);
+    // If the first pass only retrieved board state, run one follow-up completion
+    // with scoped board context so the model can emit mutation tool calls.
+    const hadOnlyReadStatePass =
+      executionResult.success &&
+      executionResult.objectsAffected.length === 0 &&
+      executionResult.toolOutputs.length > 0 &&
+      executionResult.toolOutputs.every((output) => output.tool === 'getBoardState');
+
+    if (!hadOnlyReadStatePass) {
+      return NextResponse.json({
+        success: executionResult.success,
+        actions: executionResult.actions,
+        objectsAffected: executionResult.objectsAffected,
+        ...(executionResult.error ? { error: executionResult.error } : {}),
+      });
+    }
+
+    const latestBoardState = executionResult.toolOutputs.at(-1)?.output;
+    const followupMessages: ChatCompletionMessageParam[] = [
+      ...baseMessages,
+      {
+        role: 'system',
+        content:
+          'You previously used getBoardState. Now execute the requested board change by calling mutation tools with concrete object IDs from this scoped state: '
+          + JSON.stringify(latestBoardState),
+      },
+    ];
+
+    const secondCompletion = await createTracedCompletion(
+      openai,
+      {
+        model: 'gpt-4o-mini',
+        messages: followupMessages,
+        tools: AI_TOOLS,
+        tool_choice: 'auto',
+      },
+      'ai-board-command-followup',
+    );
+
+    const secondResponseMessage = secondCompletion.choices[0]?.message;
+    const secondToolCalls = toToolCallInputs(
+      (secondResponseMessage?.tool_calls as Array<{ id: string; type: string; function?: { name: string; arguments: string } }> | undefined),
+    );
+
+    if (secondToolCalls.length === 0) {
+      return NextResponse.json({
+        success: executionResult.success,
+        actions: executionResult.actions,
+        objectsAffected: executionResult.objectsAffected,
+      });
+    }
+
+    const secondExecution = await executeToolCalls(secondToolCalls, boardId.trim(), user.id);
+    const combinedSuccess = executionResult.success && secondExecution.success;
+    const combinedActions = [...executionResult.actions, ...secondExecution.actions];
+    const combinedObjectsAffected = [...executionResult.objectsAffected, ...secondExecution.objectsAffected];
 
     return NextResponse.json({
-      success: executionResult.success,
-      actions: executionResult.actions,
-      objectsAffected: executionResult.objectsAffected,
-      ...(executionResult.error ? { error: executionResult.error } : {}),
+      success: combinedSuccess,
+      actions: combinedActions,
+      objectsAffected: combinedObjectsAffected,
+      ...(secondExecution.error ? { error: secondExecution.error } : {}),
     });
   } catch (err) {
     console.error('[AI Command] Unexpected error:', err);

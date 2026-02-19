@@ -24,10 +24,17 @@ export interface ActionRecord {
   result: string;
 }
 
+export interface ToolOutputRecord {
+  toolCallId: string;
+  tool: string;
+  output: unknown;
+}
+
 export interface ExecutionResult {
   success: boolean;
   actions: ActionRecord[];
   objectsAffected: string[];
+  toolOutputs: ToolOutputRecord[];
   error?: string;
 }
 
@@ -122,6 +129,7 @@ export async function executeToolCalls(
 ): Promise<ExecutionResult> {
   const actions: ActionRecord[] = [];
   const objectsAffected: string[] = [];
+  const toolOutputs: ToolOutputRecord[] = [];
 
   for (const call of toolCalls) {
     const toolName = call.function.name;
@@ -135,6 +143,7 @@ export async function executeToolCalls(
         success: false,
         actions,
         objectsAffected,
+        toolOutputs,
         error: `Failed to parse arguments for tool ${toolName}`,
       };
     }
@@ -150,6 +159,7 @@ export async function executeToolCalls(
         success: false,
         actions,
         objectsAffected,
+        toolOutputs,
         error: validation.error ?? `Invalid args for ${toolName}`,
       };
     }
@@ -159,16 +169,21 @@ export async function executeToolCalls(
       try {
         const state = await callBridgeBoardState(boardId);
         actions.push({ tool: toolName, args, result: `Returned ${state.returnedCount} of ${state.totalObjects} objects` });
+        toolOutputs.push({
+          toolCallId: call.id,
+          tool: toolName,
+          output: state,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Bridge request failed';
-        return { success: false, actions, objectsAffected, error: message };
+        return { success: false, actions, objectsAffected, toolOutputs, error: message };
       }
       continue;
     }
 
     // Mutation tools
     if (!MUTATION_TOOLS.has(toolName)) {
-      return { success: false, actions, objectsAffected, error: `Unknown tool: ${toolName}` };
+      return { success: false, actions, objectsAffected, toolOutputs, error: `Unknown tool: ${toolName}` };
     }
 
     try {
@@ -178,16 +193,22 @@ export async function executeToolCalls(
           success: false,
           actions,
           objectsAffected,
+          toolOutputs,
           error: bridgeResult.error ?? `Bridge error on tool ${toolName}`,
         };
       }
       objectsAffected.push(...bridgeResult.affectedObjectIds);
       actions.push({ tool: toolName, args, result: `Affected: ${bridgeResult.affectedObjectIds.join(', ')}` });
+      toolOutputs.push({
+        toolCallId: call.id,
+        tool: toolName,
+        output: bridgeResult,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Bridge request failed';
-      return { success: false, actions, objectsAffected, error: message };
+      return { success: false, actions, objectsAffected, toolOutputs, error: message };
     }
   }
 
-  return { success: true, actions, objectsAffected };
+  return { success: true, actions, objectsAffected, toolOutputs };
 }
