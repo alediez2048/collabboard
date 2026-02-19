@@ -1344,25 +1344,186 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 | `tests/unit/viewport-storage.test.ts` | Created — 11 tests |
 
 ### 🚀 Next Steps (TICKET-11)
-- AI Agent: Basic Commands (create objects, move objects via natural language)
+- Start implementation of AI Agent basic command flow
 
-### 🧭 TICKET-11 Prep (Feb 18, 2026)
-- Created `documentation/tickets/TICKET-11-PRIMER.md` for a fresh-agent handoff
-- Primer includes:
-  - copy-paste kickoff context
-  - required implementation files (`AICommandBar`, API route, `tools.ts`, `scoped-state.ts`, `executor.ts`)
-  - scoped-state and 50-object cap constraints
-  - testing checklist and acceptance criteria aligned to PRD
-- Goal: reduce restart/context overhead and keep TICKET-11 implementation aligned to architecture contracts
+---
+
+## TICKET-11: AI Agent — Basic Commands ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Added an AI command bar and a secure server flow so natural-language commands can create/update board objects through the same Yjs realtime path as manual edits.
+- **What it means:** Users can ask the app to add/move/edit board content using simple prompts, and collaborators see updates instantly.
+- **Success looked like:** Create and update prompts worked end-to-end, sync/persistence remained intact, and board-only guardrails prevented off-topic actions.
+- **How it works (simple):** The AI reads your command, picks allowed board tools, the app executes those tools via a bridge to the realtime server, and Yjs broadcasts the result to everyone on the board.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 18, 2026
+- **Branch:** `main`
+- **Commits:** `ef37214`, `2c26fad`
+
+### 🎯 Scope
+- ✅ Added `AICommandBar` UI in Canvas with loading/success/error feedback
+- ✅ Added authenticated API route: `POST /api/ai/command`
+- ✅ Added strict tool definitions and argument validators in `lib/ai-agent/tools.ts`
+- ✅ Added scoped board-state response contract (max 50 objects) support
+- ✅ Added realtime bridge endpoints on server (`/ai/mutate`, `/ai/board-state`)
+- ✅ Added sequential executor that validates tool args before bridge execution
+- ✅ Added tracing adapter for OpenAI calls (latency/tokens/cost + optional Langfuse)
+- ✅ Added second-pass follow-up logic when first AI pass only calls `getBoardState`
+
+### 🏆 Key Achievements
+- **Production-safe execution path**: AI writes flow through realtime server and live Yjs docs (not direct DB mutation).
+- **Scoping discipline**: board state stays capped and structured for AI safety/performance.
+- **Reliability fixes under real usage**: resolved runtime env mismatch (`OPENAI_API_KEY` shell override), bridge secret mismatch, and empty-text sticky generation edge case.
+- **Existing-object commands unlocked**: move/rename/update/color prompts now succeed via follow-up tool pass after state lookup.
+
+### 🔧 Technical Implementation
+- **Client/UI:** `components/board/AICommandBar.tsx` mounted in `components/board/Canvas.tsx`.
+- **AI route:** `app/api/ai/command/route.ts` with auth, payload validation, tool-calling orchestration, follow-up completion pass, and structured response.
+- **AI core:** `lib/ai-agent/tools.ts`, `lib/ai-agent/executor.ts`, `lib/ai-agent/scoped-state.ts`.
+- **Observability:** `lib/ai-agent/tracing.ts` + `.env.example` updates for OpenAI/Langfuse/LangSmith keys.
+- **Realtime bridge:** `server/src/ai-routes.ts` + `server/src/index.ts` route mount.
+- **Dependencies:** added `openai` and `langfuse`.
+
+### ⚠️ Issues & Solutions
+| Issue | Solution |
+|---|---|
+| `OPENAI_API_KEY` kept resolving to placeholder value at runtime | Found shell override (`OPENAI_API_KEY=your-key-here`), cleared with `unset OPENAI_API_KEY`, then restarted Next.js |
+| `Bridge not configured` errors | Added/validated matching `AI_BRIDGE_SECRET` in both root `.env.local` and `server/.env`, restarted both services |
+| Existing-object prompts returned “no board objects were changed” | Added follow-up AI completion pass when first pass only returns `getBoardState` |
+| `text must be a non-empty string` on sticky-note prompts | Normalized empty sticky-note text to default `"New note"` before validation |
+
+### ✅ Testing
+- ✅ AI unit/integration suite added and passing:
+  - `tests/unit/ai-agent/tools.test.ts`
+  - `tests/unit/ai-agent/scoped-state.test.ts`
+  - `tests/unit/ai-agent/executor.test.ts`
+  - `tests/integration/ai-agent/route.test.ts`
+- ✅ Full test suite: **121/121** passing
+- ✅ Build/type checks succeeded
+- ✅ Manual validation passed for:
+  - create/move/update/color commands
+  - guardrail no-op behavior for off-topic prompts
+  - multi-tab realtime sync
+  - refresh persistence
+
+### 📁 Files Changed
+| File | Action |
+|---|---|
+| `components/board/AICommandBar.tsx` | Created |
+| `components/board/Canvas.tsx` | Modified |
+| `app/api/ai/command/route.ts` | Created/Modified |
+| `lib/ai-agent/tools.ts` | Created |
+| `lib/ai-agent/scoped-state.ts` | Created |
+| `lib/ai-agent/executor.ts` | Created/Modified |
+| `lib/ai-agent/tracing.ts` | Created |
+| `server/src/ai-routes.ts` | Created |
+| `server/src/index.ts` | Modified |
+| `.env.example` | Modified |
+| `tests/unit/ai-agent/tools.test.ts` | Created |
+| `tests/unit/ai-agent/scoped-state.test.ts` | Created |
+| `tests/unit/ai-agent/executor.test.ts` | Created |
+| `tests/integration/ai-agent/route.test.ts` | Created/Modified |
+| `package.json` | Modified |
+| `package-lock.json` | Modified |
+
+---
+
+## TICKET-12: AI Agent — Complex Commands ✅
+
+### 🧠 Plain-English Summary
+- **What was done:** Added deterministic multi-step planning for complex AI commands, including template generation and layout actions, while keeping writes on the existing realtime Yjs bridge path.
+- **What it means:** Users can issue higher-level setup prompts (SWOT, journey map, retros, grid/spacing) and receive consistent board mutations in one request.
+- **Success looked like:** Complex prompts executed step-by-step with stable outputs, no overlap regressions in crowded boards, and TICKET-11 behavior stayed compatible.
+- **How it works (simple):** The route detects complex intent, optionally fetches scoped board state first, generates ordered tool steps, and executes them sequentially through the same validated executor.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 19, 2026
+- **Branch:** `main`
+
+### 🎯 Scope
+- ✅ Added deterministic planner path for complex/template commands in `app/api/ai/command/route.ts`
+- ✅ Added `lib/ai-agent/planner.ts` for step planning and sequencing contracts
+- ✅ Added `lib/ai-agent/layout.ts` for grid/spacing math and collision-safe placement helpers
+- ✅ Added `resizeObject` tool schema + validator + executor + realtime bridge support
+- ✅ Preserved route/executor seam and stable response contract (`success`, `actions`, `objectsAffected`, `error`)
+- ✅ Added overlap-aware placement using scoped `getBoardState` context for template creation
+
+### 🏆 Key Achievements
+- **Template quality improved:** SWOT now renders in a standard 2x2 quadrant format with sticky headers; journey map uses differentiated sticky-note structure and colors.
+- **Collision safety:** template creation and grid seeding now search for non-overlapping placement regions before writing objects.
+- **Deterministic execution:** complex actions are represented as ordered steps and executed strictly sequentially.
+- **Backward compatibility:** existing TICKET-11 single-step and follow-up behavior remains intact.
+
+### 🔧 Technical Implementation
+- **Planner layer:** `lib/ai-agent/planner.ts`
+  - complex intent detection
+  - state-gated planning (`requiresBoardState`)
+  - template step generation for SWOT/journey/retro/pros-cons
+  - collision-aware template placement
+- **Layout helpers:** `lib/ai-agent/layout.ts`
+  - `computeGridLayout`
+  - `computeEvenHorizontalSpacing`
+  - `rectanglesOverlap`
+  - `findNonOverlappingOrigin`
+- **Route orchestration:** `app/api/ai/command/route.ts`
+  - planner-first branch for complex commands
+  - scoped `getBoardState` pre-pass when needed
+  - sequential execution of planned tool calls via existing executor
+- **Tooling/bridge updates:** `lib/ai-agent/tools.ts`, `lib/ai-agent/executor.ts`, `server/src/ai-routes.ts`
+  - added `resizeObject(objectId, width, height)` end-to-end
+
+### ⚠️ Issues & Solutions
+| Issue | Solution |
+|---|---|
+| Complex templates felt repetitive (frame-heavy) | Reworked planner templates to use structure-specific objects and styling (e.g., SWOT quadrants + sticky headers, journey stage stickies) |
+| New objects could overlap existing board content | Added collision-aware origin search (`findNonOverlappingOrigin`) using scoped board object bounds |
+| Need to preserve TICKET-11 contract while adding multi-step flow | Kept route/executor boundary unchanged and isolated planning logic in dedicated modules |
+
+### ✅ Testing
+- ✅ Unit tests added/updated:
+  - `tests/unit/ai-agent/planner.test.ts`
+  - `tests/unit/ai-agent/layout.test.ts`
+  - `tests/unit/ai-agent/tools.test.ts`
+  - `tests/unit/ai-agent/executor.test.ts`
+- ✅ Integration tests added/updated:
+  - `tests/integration/ai-agent/route-complex.test.ts`
+  - `tests/integration/ai-agent/route.test.ts`
+- ✅ AI suite result: **65/65** passing
+- ✅ Lint checks on changed files: no errors
+- ✅ Manual validation: complex templates render correctly, layout commands execute, and collision-safe placement works on crowded boards
+
+### 📁 Files Changed
+| File | Action |
+|---|---|
+| `app/api/ai/command/route.ts` | Modified |
+| `lib/ai-agent/tools.ts` | Modified |
+| `lib/ai-agent/executor.ts` | Modified |
+| `lib/ai-agent/planner.ts` | Created |
+| `lib/ai-agent/layout.ts` | Created |
+| `server/src/ai-routes.ts` | Modified |
+| `tests/unit/ai-agent/tools.test.ts` | Modified |
+| `tests/unit/ai-agent/executor.test.ts` | Modified |
+| `tests/unit/ai-agent/planner.test.ts` | Created |
+| `tests/unit/ai-agent/layout.test.ts` | Created |
+| `tests/integration/ai-agent/route-complex.test.ts` | Created |
+| `tests/integration/ai-agent/route.test.ts` | Modified |
+
+### 🚀 Next Steps (TICKET-13)
+- Profile 60fps rendering and sync latency under object load
+- Stress test 500+ objects and 5+ collaborators
+- Validate reconnect/recovery behavior and document hardening actions
 
 ---
 
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 10/15 (67%)
+- **Tickets Completed:** 12/15 (80%)
 - **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ 69/69 passing
+- **Tests:** ✅ AI suite passing (65/65)
 - **Lint:** ✅ Zero errors
 
 ### ✅ Current Status
@@ -1380,10 +1541,12 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 8. ✅ Shapes (rectangle, circle, line) with drag-to-draw
 9. ✅ Connectors + frames (relationship + grouping primitives)
 10. ✅ Selection + Transforms (resize/rotate via Konva Transformer, viewport persistence)
+11. ✅ AI Agent: Basic Commands (natural-language create/update through realtime bridge)
+12. ✅ AI Agent: Complex Commands (multi-step planning + template/layout orchestration with collision-safe placement)
 
 ### 📈 Next Priorities
-1. **TICKET-11:** AI Agent: Basic Commands
-2. **TICKET-12:** AI Agent: Complex Commands
+1. **TICKET-13:** Performance Profiling + Hardening
+2. **TICKET-14:** Documentation + AI Dev Log + Cost Analysis
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early

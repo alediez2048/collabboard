@@ -52,6 +52,12 @@ export interface ChangeColorArgs {
   color: string;
 }
 
+export interface ResizeObjectArgs {
+  objectId: string;
+  width: number;
+  height: number;
+}
+
 // OpenAI tool definitions following the function-calling schema from the 1.3 reference repo
 export const AI_TOOLS: ChatCompletionFunctionTool[] = [
   {
@@ -175,6 +181,22 @@ export const AI_TOOLS: ChatCompletionFunctionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'resizeObject',
+      description: 'Resize an existing board object while keeping its current position.',
+      parameters: {
+        type: 'object',
+        properties: {
+          objectId: { type: 'string', description: 'The unique ID of the object.' },
+          width: { type: 'number', description: 'New width in pixels.' },
+          height: { type: 'number', description: 'New height in pixels.' },
+        },
+        required: ['objectId', 'width', 'height'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'getBoardState',
       description: 'Get the current state of the board — objects, types, positions, and text. Use this before making changes that depend on what is already on the board (e.g. moving or coloring existing objects).',
       parameters: {
@@ -250,5 +272,12 @@ export function validateUpdateTextArgs(args: Record<string, unknown>): Validatio
 export function validateChangeColorArgs(args: Record<string, unknown>): ValidationResult {
   if (!isNonEmptyString(args.objectId)) return { valid: false, error: 'objectId must be a non-empty string' };
   if (!isNonEmptyString(args.color)) return { valid: false, error: 'color must be a non-empty string' };
+  return { valid: true };
+}
+
+export function validateResizeObjectArgs(args: Record<string, unknown>): ValidationResult {
+  if (!isNonEmptyString(args.objectId)) return { valid: false, error: 'objectId must be a non-empty string' };
+  if (!isNumber(args.width) || args.width <= 0) return { valid: false, error: 'width must be a positive number' };
+  if (!isNumber(args.height) || args.height <= 0) return { valid: false, error: 'height must be a positive number' };
   return { valid: true };
 }

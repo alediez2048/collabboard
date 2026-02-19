@@ -4,8 +4,10 @@ import { createClient } from '@/lib/supabase/server';
 import { AI_TOOLS } from '@/lib/ai-agent/tools';
 import { executeToolCalls } from '@/lib/ai-agent/executor';
 import { createTracedCompletion } from '@/lib/ai-agent/tracing';
+import { planComplexCommand } from '@/lib/ai-agent/planner';
 import type { ToolCallInput } from '@/lib/ai-agent/executor';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
 
 const SYSTEM_PROMPT = `You are an AI assistant that controls a collaborative whiteboard called CollabBoard.
 
@@ -98,12 +100,78 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       );
     }
 
+    const trimmedBoardId = boardId.trim();
+    const trimmedCommand = command.trim();
+
+    // Deterministic planner path for complex/template commands.
+    // This keeps execution sequential and predictable for multi-step setup/layout requests.
+    const initialPlan = planComplexCommand(trimmedCommand);
+    if (initialPlan) {
+      let plannedActions: Array<{ tool: string; args: Record<string, unknown>; result: string }> = [];
+      let plannedObjectsAffected: string[] = [];
+      let resolvedPlan = initialPlan;
+
+      if (initialPlan.requiresBoardState) {
+        const boardStateRead = await executeToolCalls(
+          [
+            {
+              id: 'planned-get-board-state',
+              type: 'function',
+              function: { name: 'getBoardState', arguments: '{}' },
+            },
+          ],
+          trimmedBoardId,
+          user.id,
+        );
+
+        if (!boardStateRead.success) {
+          return NextResponse.json({
+            success: false,
+            actions: boardStateRead.actions,
+            objectsAffected: boardStateRead.objectsAffected,
+            ...(boardStateRead.error ? { error: boardStateRead.error } : {}),
+          });
+        }
+
+        plannedActions = [...boardStateRead.actions];
+        plannedObjectsAffected = [...boardStateRead.objectsAffected];
+
+        const latestState = boardStateRead.toolOutputs.at(-1)?.output as ScopedBoardState | undefined;
+        resolvedPlan = planComplexCommand(trimmedCommand, latestState) ?? { requiresBoardState: false, steps: [] };
+      }
+
+      if (resolvedPlan.steps.length === 0) {
+        return NextResponse.json({
+          success: true,
+          actions: plannedActions,
+          objectsAffected: plannedObjectsAffected,
+        });
+      }
+
+      const plannedToolCalls: ToolCallInput[] = resolvedPlan.steps.map((step, index) => ({
+        id: `planned-step-${index + 1}`,
+        type: 'function',
+        function: {
+          name: step.tool,
+          arguments: JSON.stringify(step.args),
+        },
+      }));
+
+      const planExecution = await executeToolCalls(plannedToolCalls, trimmedBoardId, user.id);
+      return NextResponse.json({
+        success: planExecution.success,
+        actions: [...plannedActions, ...planExecution.actions],
+        objectsAffected: [...plannedObjectsAffected, ...planExecution.objectsAffected],
+        ...(planExecution.error ? { error: planExecution.error } : {}),
+      });
+    }
+
     // Call OpenAI with tool-calling (traced via tracing adapter from 1.3 reference pattern)
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const baseMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: command.trim() },
+      { role: 'user', content: trimmedCommand },
     ];
 
     const completion = await createTracedCompletion(
@@ -131,7 +199,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       });
     }
 
-    const executionResult = await executeToolCalls(firstToolCalls, boardId.trim(), user.id);
+    const executionResult = await executeToolCalls(firstToolCalls, trimmedBoardId, user.id);
 
     // If the first pass only retrieved board state, run one follow-up completion
     // with scoped board context so the model can emit mutation tool calls.
@@ -185,7 +253,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       });
     }
 
-    const secondExecution = await executeToolCalls(secondToolCalls, boardId.trim(), user.id);
+    const secondExecution = await executeToolCalls(secondToolCalls, trimmedBoardId, user.id);
     const combinedSuccess = executionResult.success && secondExecution.success;
     const combinedActions = [...executionResult.actions, ...secondExecution.actions];
     const combinedObjectsAffected = [...executionResult.objectsAffected, ...secondExecution.objectsAffected];

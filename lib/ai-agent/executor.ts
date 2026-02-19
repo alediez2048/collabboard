@@ -6,6 +6,7 @@ import {
   validateMoveObjectArgs,
   validateUpdateTextArgs,
   validateChangeColorArgs,
+  validateResizeObjectArgs,
 } from '@/lib/ai-agent/tools';
 import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
 
@@ -62,6 +63,7 @@ const MUTATION_TOOLS = new Set([
   'createFrame',
   'createConnector',
   'moveObject',
+  'resizeObject',
   'updateText',
   'changeColor',
 ]);
@@ -76,6 +78,7 @@ function validateArgs(
     case 'createFrame': return validateCreateFrameArgs(args);
     case 'createConnector': return validateCreateConnectorArgs(args);
     case 'moveObject': return validateMoveObjectArgs(args);
+    case 'resizeObject': return validateResizeObjectArgs(args);
     case 'updateText': return validateUpdateTextArgs(args);
     case 'changeColor': return validateChangeColorArgs(args);
     case 'getBoardState': return { valid: true };

@@ -8,6 +8,7 @@ import {
   validateMoveObjectArgs,
   validateUpdateTextArgs,
   validateChangeColorArgs,
+  validateResizeObjectArgs,
 } from '@/lib/ai-agent/tools';
 
 describe('AI Tool Definitions', () => {
@@ -20,6 +21,7 @@ describe('AI Tool Definitions', () => {
     expect(names).toContain('moveObject');
     expect(names).toContain('updateText');
     expect(names).toContain('changeColor');
+    expect(names).toContain('resizeObject');
     expect(names).toContain('getBoardState');
   });
 
@@ -32,8 +34,8 @@ describe('AI Tool Definitions', () => {
     }
   });
 
-  it('has at least 8 tools', () => {
-    expect(AI_TOOLS.length).toBeGreaterThanOrEqual(8);
+  it('has at least 9 tools', () => {
+    expect(AI_TOOLS.length).toBeGreaterThanOrEqual(9);
   });
 });
 
@@ -169,5 +171,17 @@ describe('validateChangeColorArgs', () => {
   it('rejects missing objectId', () => {
     const result = validateChangeColorArgs({ color: '#fff' });
     expect(result.valid).toBe(false);
+  });
+});
+
+describe('validateResizeObjectArgs', () => {
+  it('accepts valid resize args', () => {
+    const result = validateResizeObjectArgs({ objectId: 'abc', width: 240, height: 120 });
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects zero or negative dimensions', () => {
+    expect(validateResizeObjectArgs({ objectId: 'abc', width: 0, height: 100 }).valid).toBe(false);
+    expect(validateResizeObjectArgs({ objectId: 'abc', width: 100, height: -1 }).valid).toBe(false);
   });
 });

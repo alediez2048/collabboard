@@ -221,6 +221,14 @@ function applyMutation(
       return { affectedObjectIds: [objectId] };
     }
 
+    case 'resizeObject': {
+      const objectId = args.objectId as string;
+      const obj = objects.get(objectId);
+      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found` };
+      updateObject(objects, objectId, { width: args.width as number, height: args.height as number });
+      return { affectedObjectIds: [objectId] };
+    }
+
     case 'updateText': {
       const objectId = args.objectId as string;
       const obj = objects.get(objectId);

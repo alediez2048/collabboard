@@ -170,6 +170,19 @@ describe('executeToolCalls', () => {
     expect(result.success).toBe(true);
   });
 
+  it('handles resizeObject tool call', async () => {
+    mockFetch.mockResolvedValueOnce(makeBridgeSuccess(['obj-1']));
+
+    const result = await executeToolCalls(
+      [makeToolCall('resizeObject', { objectId: 'obj-1', width: 320, height: 180 })],
+      'board-abc',
+      'user-1',
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectsAffected).toContain('obj-1');
+  });
+
   it('handles getBoardState tool call without calling mutate bridge', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

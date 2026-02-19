@@ -15,8 +15,8 @@
 - [x] **TICKET-08** — Shapes: Rectangle, Circle, Line (~2 hrs) ✅ Completed Feb 17
 - [x] **TICKET-09** — Connectors + Frames (~2.5 hrs) ✅ Completed Feb 17–18
 - [x] **TICKET-10** — Selection + Transforms (~2 hrs) ✅ Completed Feb 18
-- [ ] **TICKET-11** — AI Agent: Basic Commands (~3 hrs)
-- [ ] **TICKET-12** — AI Agent: Complex Commands (~2.5 hrs)
+- [x] **TICKET-11** — AI Agent: Basic Commands (~3 hrs) ✅ Completed Feb 18
+- [x] **TICKET-12** — AI Agent: Complex Commands (~2.5 hrs) ✅ Completed Feb 19
 
 ## Polish + Docs (Due: Sun 10:59 PM CT)
 
@@ -27,6 +27,23 @@
 ## Notes
 
 _Update this file after completing each ticket. Add a one-line note if you deviated from the PRD._
+
+### TICKET-12 (Kickoff Feb 18, 2026)
+- 📌 Primer created: `documentation/tickets/TICKET-12-PRIMER.md`
+- 🎯 Focus: multi-step AI planning/execution for complex board setup and layout commands
+- ✅ Completed Feb 19, 2026 — templates improved (SWOT 2x2 + journey stickies), collision-aware placement added, AI tests passing
+
+### TICKET-13 (Kickoff Feb 19, 2026)
+- 📌 Primer created: `documentation/tickets/TICKET-13-PRIMER.md`
+- 🎯 Focus: performance profiling + hardening (fps/sync latency/object-count resilience + reconnect behavior)
+
+### TICKET-11 (Completed Feb 18, 2026)
+- ✅ All acceptance criteria met for basic AI command flow
+- ✅ Added AI command bar + authenticated `/api/ai/command` route + tool schema/validator/executor stack
+- ✅ Added realtime bridge endpoints (`/ai/mutate`, `/ai/board-state`) so AI writes flow through live Yjs docs
+- ✅ Fixed runtime blockers: API key env override, bridge secret mismatch, empty sticky text normalization
+- ✅ Added follow-up tool pass after `getBoardState` to resolve and mutate existing objects reliably
+- ✅ Tests: AI unit/integration suites added; full project tests passing (121/121)
 
 ### TICKET-10 (Completed Feb 18, 2026)
 - ✅ All acceptance criteria met
