@@ -25,6 +25,7 @@ import { createCursorSocket, emitCursorMove } from '@/lib/sync/cursor-socket';
 import { createClient } from '@/lib/supabase/client';
 import { normalizeGeometry } from '@/lib/utils/geometry';
 import { loadViewport, saveViewport } from '@/lib/utils/viewport-storage';
+import { AICommandBar } from './AICommandBar';
 
 interface CanvasProps {
   boardId: string;
@@ -1000,6 +1001,9 @@ export function Canvas({ boardId }: CanvasProps) {
           />
         </div>
       )}
+
+      {/* AI Command Bar */}
+      <AICommandBar boardId={boardId} />
 
       {/* Hidden board ID for testing */}
       <div className="sr-only" data-testid="board-id">

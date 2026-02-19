@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import { setupYjsServer } from './yjs-server';
 import { setupSocketIO } from './socket-server';
+import { aiRouter } from './ai-routes';
 import { Duplex } from 'stream';
 
 const app = express();
@@ -27,6 +28,9 @@ app.use(express.json());
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// AI bridge routes (called by Next.js /api/ai/command)
+app.use('/ai', aiRouter);
 
 // Setup y-websocket with noServer so we control the upgrade routing manually
 const wss = new WebSocketServer({ noServer: true });
