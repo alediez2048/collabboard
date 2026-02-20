@@ -10,7 +10,7 @@ import {
   setCommandTraceExecutionPath,
   startCommandTrace,
 } from '@/lib/ai-agent/tracing';
-import { planComplexCommand } from '@/lib/ai-agent/planner';
+import { planComplexCommand, verifyPlanExecution } from '@/lib/ai-agent/planner';
 import type { ToolCallInput } from '@/lib/ai-agent/executor';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
@@ -60,6 +60,17 @@ function toToolCallInputs(
         arguments: tc.function.arguments,
       },
     }));
+}
+
+function toPlannedToolCalls(steps: Array<{ tool: string; args: Record<string, unknown> }>, idPrefix: string): ToolCallInput[] {
+  return steps.map((step, index) => ({
+    id: `${idPrefix}-${index + 1}`,
+    type: 'function',
+    function: {
+      name: step.tool,
+      arguments: JSON.stringify(step.args),
+    },
+  }));
 }
 
 /**
@@ -215,14 +226,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
         });
       }
 
-      const plannedToolCalls: ToolCallInput[] = resolvedPlan.steps.map((step, index) => ({
-        id: `planned-step-${index + 1}`,
-        type: 'function',
-        function: {
-          name: step.tool,
-          arguments: JSON.stringify(step.args),
-        },
-      }));
+      const plannedToolCalls = toPlannedToolCalls(resolvedPlan.steps, 'planned-step');
 
       let planExecution = await executeToolCalls(plannedToolCalls, trimmedBoardId, user.id, getExecutionTraceOptions());
 
@@ -243,14 +247,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
 
         if (createdSoFar < expectedCreates) {
           const remainingSteps = resolvedPlan.steps.slice(createdSoFar);
-          const topUpToolCalls: ToolCallInput[] = remainingSteps.map((step, index) => ({
-            id: `planned-topup-step-${createdSoFar + index + 1}`,
-            type: 'function',
-            function: {
-              name: step.tool,
-              arguments: JSON.stringify(step.args),
-            },
-          }));
+          const topUpToolCalls = toPlannedToolCalls(remainingSteps, `planned-topup-step-${createdSoFar}`);
 
           const topUpExecution = await executeToolCalls(
             topUpToolCalls,
@@ -268,6 +265,62 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
           void recordCommandTraceEvent(traceContext, 'planner-bulk-topup', {
             requestedTopUpCount: topUpToolCalls.length,
             topUpSuccess: topUpExecution.success,
+          });
+        }
+      }
+
+      if (planExecution.success && resolvedPlan.verification) {
+        const verificationStateRead = await executeToolCalls(
+          [
+            {
+              id: 'planned-verification-state',
+              type: 'function',
+              function: { name: 'getBoardState', arguments: '{}' },
+            },
+          ],
+          trimmedBoardId,
+          user.id,
+          getExecutionTraceOptions(),
+        );
+
+        if (verificationStateRead.success) {
+          const latestState = verificationStateRead.toolOutputs.at(-1)?.output as ScopedBoardState | undefined;
+          if (latestState) {
+            const verificationResult = verifyPlanExecution(resolvedPlan, latestState);
+            void recordCommandTraceEvent(traceContext, 'planner-verification-check', {
+              passed: verificationResult.passed,
+              issueCount: verificationResult.issues.length,
+              correctiveStepCount: verificationResult.correctiveSteps.length,
+            });
+
+            if (!verificationResult.passed && verificationResult.correctiveSteps.length > 0) {
+              const correctiveToolCalls = toPlannedToolCalls(
+                verificationResult.correctiveSteps,
+                'planned-correction-step',
+              );
+              const correctionExecution = await executeToolCalls(
+                correctiveToolCalls,
+                trimmedBoardId,
+                user.id,
+                getExecutionTraceOptions(),
+              );
+
+              planExecution = {
+                success: planExecution.success && correctionExecution.success,
+                actions: [...planExecution.actions, ...correctionExecution.actions],
+                objectsAffected: [...planExecution.objectsAffected, ...correctionExecution.objectsAffected],
+                toolOutputs: [...planExecution.toolOutputs, ...correctionExecution.toolOutputs],
+                ...(correctionExecution.error ? { error: correctionExecution.error } : {}),
+              };
+              void recordCommandTraceEvent(traceContext, 'planner-verification-correction', {
+                requestedCorrections: correctiveToolCalls.length,
+                correctionSuccess: correctionExecution.success,
+              });
+            }
+          }
+        } else {
+          void recordCommandTraceEvent(traceContext, 'planner-verification-skipped', {
+            reason: 'state-read-failed',
           });
         }
       }

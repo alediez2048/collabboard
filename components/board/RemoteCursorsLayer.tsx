@@ -13,6 +13,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layer } from 'react-konva';
 import { Socket } from 'socket.io-client';
 import { onCursorMove, type CursorMoveEvent } from '@/lib/sync/cursor-socket';
+import {
+  DEFAULT_MAX_PENDING_CURSOR_EVENTS,
+  enqueueCursorEvent,
+} from '@/lib/sync/cursor-queue';
 import { RemoteCursor } from './RemoteCursor';
 
 interface RemoteCursorsLayerProps {
@@ -23,6 +27,7 @@ interface RemoteCursorsLayerProps {
 
 const STALE_CURSOR_MS = 5000; // remove cursor after 5 s of silence
 const STALE_CHECK_INTERVAL_MS = 1000;
+const MAX_PENDING_CURSOR_EVENTS = DEFAULT_MAX_PENDING_CURSOR_EVENTS;
 
 export function RemoteCursorsLayer({
   socket,
@@ -43,24 +48,29 @@ export function RemoteCursorsLayer({
   // Keep a ref so the stale-cleanup interval can read the latest map without
   // being recreated every time the map changes.
   const cursorsRef = useRef(cursors);
-  cursorsRef.current = cursors;
+
+  useEffect(() => {
+    cursorsRef.current = cursors;
+  }, [cursors]);
 
   // Subscribe to remote cursor events
   useEffect(() => {
+    const pendingCursorEvents = pendingCursorEventsRef.current;
+
     const flushQueuedCursorEvents = (): void => {
       frameIdRef.current = null;
-      const queued = pendingCursorEventsRef.current;
-      if (queued.size === 0) return;
+      if (pendingCursorEvents.size === 0) return;
+      const queuedEntries = Array.from(pendingCursorEvents.entries());
+      pendingCursorEvents.clear();
 
       const timestamp = Date.now();
       setCursors((prev) => {
         const next = new Map(prev);
-        for (const [userId, cursor] of queued.entries()) {
+        for (const [userId, cursor] of queuedEntries) {
           next.set(userId, { ...cursor, timestamp });
         }
         return next;
       });
-      queued.clear();
 
       if (process.env.NODE_ENV === 'development') {
         const now = Date.now();
@@ -106,7 +116,11 @@ export function RemoteCursorsLayer({
         }
       }
 
-      pendingCursorEventsRef.current.set(data.userId, data);
+      enqueueCursorEvent(
+        pendingCursorEvents,
+        data,
+        MAX_PENDING_CURSOR_EVENTS,
+      );
       scheduleCursorFlush();
 
       if (process.env.NODE_ENV === 'development') {
@@ -120,7 +134,7 @@ export function RemoteCursorsLayer({
       if (frameIdRef.current !== null) {
         window.cancelAnimationFrame(frameIdRef.current);
       }
-      pendingCursorEventsRef.current.clear();
+      pendingCursorEvents.clear();
       socket.off('cursor:move', handleCursorMove);
     };
   }, [socket, currentUserId, onLatencySample]);

@@ -28,6 +28,12 @@ export interface BoardDoc {
   objects: Y.Map<BoardObject>;
 }
 
+export interface ObjectPositionUpdate {
+  id: string;
+  x: number;
+  y: number;
+}
+
 /**
  * Create a new Yjs document for a board.
  * The document contains a Y.Map named "objects" that stores all board objects.
@@ -70,6 +76,33 @@ export function updateObject(
 }
 
 /**
+ * Apply many position updates with one shared timestamp.
+ * Returns the number of objects that were updated.
+ */
+export function updateObjectPositions(
+  objects: Y.Map<BoardObject>,
+  updates: ReadonlyArray<ObjectPositionUpdate>,
+  updatedAt = new Date().toISOString(),
+): number {
+  let updatedCount = 0;
+
+  for (const update of updates) {
+    const existing = objects.get(update.id);
+    if (!existing) continue;
+
+    objects.set(update.id, {
+      ...existing,
+      x: update.x,
+      y: update.y,
+      updatedAt,
+    });
+    updatedCount += 1;
+  }
+
+  return updatedCount;
+}
+
+/**
  * Helper to remove an object from the board
  */
 export function removeObject(
@@ -88,6 +121,62 @@ export function getAllObjects(objects: Y.Map<BoardObject>): BoardObject[] {
     result.push(value);
   });
   return result;
+}
+
+/**
+ * Apply a set of changed object IDs from a Y.Map into an existing array of
+ * board objects without rebuilding the full array.
+ */
+export function applyObjectMapChanges(
+  currentObjects: BoardObject[],
+  objects: Y.Map<BoardObject>,
+  changedKeys: Iterable<string>,
+  indexById?: Map<string, number>,
+): BoardObject[] {
+  const normalizedKeys = Array.from(new Set(changedKeys));
+  if (normalizedKeys.length === 0) {
+    return currentObjects;
+  }
+
+  const nextObjects = currentObjects.slice();
+  const mutableIndexById = indexById ?? new Map<string, number>();
+  if (!indexById) {
+    for (let index = 0; index < nextObjects.length; index += 1) {
+      mutableIndexById.set(nextObjects[index].id, index);
+    }
+  }
+
+  let hasChanges = false;
+
+  for (const key of normalizedKeys) {
+    const nextObject = objects.get(key);
+    const existingIndex = mutableIndexById.get(key);
+
+    if (nextObject) {
+      if (existingIndex === undefined) {
+        nextObjects.push(nextObject);
+        mutableIndexById.set(key, nextObjects.length - 1);
+        hasChanges = true;
+      } else if (nextObjects[existingIndex] !== nextObject) {
+        nextObjects[existingIndex] = nextObject;
+        hasChanges = true;
+      }
+      continue;
+    }
+
+    if (existingIndex === undefined) {
+      continue;
+    }
+
+    nextObjects.splice(existingIndex, 1);
+    mutableIndexById.delete(key);
+    for (let index = existingIndex; index < nextObjects.length; index += 1) {
+      mutableIndexById.set(nextObjects[index].id, index);
+    }
+    hasChanges = true;
+  }
+
+  return hasChanges ? nextObjects : currentObjects;
 }
 
 /**

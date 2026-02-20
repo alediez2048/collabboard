@@ -15,6 +15,7 @@ interface StickyNoteProps {
   rotation?: number;
   isSelected: boolean;
   reduceEffects?: boolean;
+  hideText?: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
   onDragStart?: (id: string) => void;
   onDragMove?: (id: string, x: number, y: number) => void;
@@ -36,6 +37,7 @@ export const StickyNote = forwardRef<Konva.Group, StickyNoteProps>(
       rotation,
       isSelected,
       reduceEffects,
+      hideText,
       onSelect,
       onDragStart,
       onDragMove,
@@ -121,22 +123,24 @@ export const StickyNote = forwardRef<Konva.Group, StickyNoteProps>(
           strokeWidth={isSelected ? 3 : 0}
         />
 
-        {/* Text content */}
-        <Text
-          text={text}
-          x={12}
-          y={12}
-          width={width - 24}
-          height={height - 24}
-          fontSize={16}
-          fontFamily="Inter, system-ui, -apple-system, sans-serif"
-          fill="#1f2937"
-          align="left"
-          verticalAlign="top"
-          wrap="word"
-          ellipsis={true}
-          listening={false}
-        />
+        {/* Text is the most expensive sticky-note node; hide it during dense interactions */}
+        {!hideText && (
+          <Text
+            text={text}
+            x={12}
+            y={12}
+            width={width - 24}
+            height={height - 24}
+            fontSize={16}
+            fontFamily="Inter, system-ui, -apple-system, sans-serif"
+            fill="#1f2937"
+            align="left"
+            verticalAlign="top"
+            wrap="word"
+            ellipsis={true}
+            listening={false}
+          />
+        )}
       </Group>
     );
   },

@@ -12,41 +12,70 @@ interface ShareButtonProps {
  * the JoinBoardPrompt and can self-onboard.
  */
 export function ShareButton({ boardId }: ShareButtonProps) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  const setStatusForDuration = (nextStatus: 'success' | 'error', durationMs: number): void => {
+    setStatus(nextStatus);
+    window.setTimeout(() => setStatus('idle'), durationMs);
+  };
+
+  const fallbackCopy = (value: string): boolean => {
+    try {
+      const el = document.createElement('textarea');
+      el.value = value;
+      document.body.appendChild(el);
+      el.select();
+      const didCopy = document.execCommand('copy');
+      document.body.removeChild(el);
+      return didCopy;
+    } catch {
+      return false;
+    }
+  };
 
   const handleCopy = async (): Promise<void> => {
     const url = `${window.location.origin}/board/${boardId}`;
 
     try {
+      if (!navigator.clipboard?.writeText) {
+        const didFallbackCopy = fallbackCopy(url);
+        if (!didFallbackCopy) {
+          setStatusForDuration('error', 3000);
+          return;
+        }
+        setStatusForDuration('success', 2000);
+        return;
+      }
+
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setStatusForDuration('success', 2000);
     } catch {
-      // Fallback for browsers that block clipboard API
-      const el = document.createElement('textarea');
-      el.value = url;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      const didFallbackCopy = fallbackCopy(url);
+      setStatusForDuration(didFallbackCopy ? 'success' : 'error', didFallbackCopy ? 2000 : 3000);
     }
   };
 
   return (
     <button
+      data-testid="share-board-button"
       onClick={handleCopy}
       title="Copy shareable link"
       className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
     >
-      {copied ? (
+      {status === 'success' ? (
         <>
           {/* Checkmark icon */}
           <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           <span className="text-green-600">Link copied!</span>
+        </>
+      ) : status === 'error' ? (
+        <>
+          <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" />
+          </svg>
+          <span className="text-red-600">Copy failed</span>
         </>
       ) : (
         <>

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { BoardCanvas } from '@/components/board/BoardCanvas';
 import { JoinBoardPrompt } from '@/components/board/JoinBoardPrompt';
 
@@ -28,7 +28,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
   // Board accessible — render it
   if (board) {
-    return <BoardCanvas boardId={board.id} />;
+    return <BoardCanvas boardId={board.id} boardName={board.name} />;
   }
 
   // Board not accessible via RLS — check if it actually exists by trying

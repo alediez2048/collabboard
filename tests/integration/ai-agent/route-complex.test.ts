@@ -246,6 +246,65 @@ describe('POST /api/ai/command complex planning', () => {
     expect(mockTracing).not.toHaveBeenCalled();
   });
 
+  it('routes ambiguous "create 1000" commands through deterministic sticky-note planning', async () => {
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      actions: Array.from({ length: 1000 }, (_, index) => ({
+        tool: 'createStickyNote',
+        args: { text: `Item ${index + 1}`, x: 100, y: 100, color: '#ffeb3b' },
+        result: `Affected: note-${index + 1}`,
+      })),
+      objectsAffected: Array.from({ length: 1000 }, (_, index) => `note-${index + 1}`),
+      toolOutputs: [],
+    });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Create 1000' }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const plannedCalls = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(plannedCalls).toHaveLength(1000);
+    expect(plannedCalls.every((call: { function?: { name?: string } }) => call.function?.name === 'createStickyNote')).toBe(true);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
+  it('routes bulk arrow commands through deterministic line-shape planning', async () => {
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      actions: Array.from({ length: 1000 }, (_, index) => ({
+        tool: 'createShape',
+        args: {
+          type: 'line',
+          x: 120,
+          y: 120,
+          width: 220,
+          height: 120,
+          color: '#1d4ed8',
+        },
+        result: `Affected: line-${index + 1}`,
+      })),
+      objectsAffected: Array.from({ length: 1000 }, (_, index) => `line-${index + 1}`),
+      toolOutputs: [],
+    });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Add 1000 arrows' }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const plannedCalls = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(plannedCalls).toHaveLength(1000);
+    expect(plannedCalls.every((call: { function?: { name?: string } }) => call.function?.name === 'createShape')).toBe(true);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
   it('routes number-word sticky-note bulk commands through deterministic planner path', async () => {
     mockExecute.mockResolvedValueOnce({
       success: true,
@@ -332,5 +391,141 @@ describe('POST /api/ai/command complex planning', () => {
     expect(body.success).toBe(true);
     expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(body.objectsAffected).toHaveLength(100);
+  });
+
+  it('runs Kanban verification and issues corrective steps when layout checks fail', async () => {
+    mockExecute
+      // Initial board-state read required by planner.
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 2 of 2 objects' }],
+        objectsAffected: [],
+        toolOutputs: [{
+          toolCallId: 'call-state',
+          tool: 'getBoardState',
+          output: {
+            totalObjects: 2,
+            returnedCount: 2,
+            objects: [
+              {
+                id: 'note-1',
+                type: 'sticky_note',
+                x: 100,
+                y: 120,
+                width: 220,
+                height: 220,
+                rotation: 0,
+                zIndex: 1,
+                properties: { text: 'One', color: '#ffeb3b' },
+                createdBy: 'user-1',
+                updatedAt: new Date().toISOString(),
+              },
+              {
+                id: 'note-2',
+                type: 'sticky_note',
+                x: 420,
+                y: 180,
+                width: 220,
+                height: 220,
+                rotation: 0,
+                zIndex: 2,
+                properties: { text: 'Two', color: '#ffeb3b' },
+                createdBy: 'user-1',
+                updatedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        }],
+      })
+      // Initial deterministic execution pass.
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [
+          { tool: 'createFrame', args: { title: 'To Do' }, result: 'Affected: frame-1' },
+          { tool: 'createFrame', args: { title: 'In Progress' }, result: 'Affected: frame-2' },
+          { tool: 'createFrame', args: { title: 'Done' }, result: 'Affected: frame-3' },
+          { tool: 'resizeObject', args: { objectId: 'note-1', width: 180, height: 120 }, result: 'Affected: note-1' },
+          { tool: 'moveObject', args: { objectId: 'note-1', x: 136, y: 176 }, result: 'Affected: note-1' },
+          { tool: 'resizeObject', args: { objectId: 'note-2', width: 180, height: 120 }, result: 'Affected: note-2' },
+          { tool: 'moveObject', args: { objectId: 'note-2', x: 496, y: 176 }, result: 'Affected: note-2' },
+        ],
+        objectsAffected: ['frame-1', 'frame-2', 'frame-3', 'note-1', 'note-1', 'note-2', 'note-2'],
+        toolOutputs: [],
+      })
+      // Verification read returns drifted notes and missing frames.
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 2 of 2 objects' }],
+        objectsAffected: [],
+        toolOutputs: [{
+          toolCallId: 'call-verify',
+          tool: 'getBoardState',
+          output: {
+            totalObjects: 2,
+            returnedCount: 2,
+            objects: [
+              {
+                id: 'note-1',
+                type: 'sticky_note',
+                x: 20,
+                y: 30,
+                width: 260,
+                height: 260,
+                rotation: 0,
+                zIndex: 1,
+                properties: { text: 'One', color: '#ffeb3b' },
+                createdBy: 'user-1',
+                updatedAt: new Date().toISOString(),
+              },
+              {
+                id: 'note-2',
+                type: 'sticky_note',
+                x: 40,
+                y: 40,
+                width: 260,
+                height: 260,
+                rotation: 0,
+                zIndex: 2,
+                properties: { text: 'Two', color: '#ffeb3b' },
+                createdBy: 'user-1',
+                updatedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        }],
+      })
+      // Corrective pass.
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [
+          { tool: 'createFrame', args: { title: 'To Do' }, result: 'Affected: frame-4' },
+          { tool: 'resizeObject', args: { objectId: 'note-1', width: 180, height: 120 }, result: 'Affected: note-1' },
+          { tool: 'moveObject', args: { objectId: 'note-1', x: 136, y: 176 }, result: 'Affected: note-1' },
+        ],
+        objectsAffected: ['frame-4', 'note-1', 'note-1'],
+        toolOutputs: [],
+      });
+
+    const response = await POST(
+      makeRequest({
+        boardId: 'board-1',
+        command: 'Create a kanban board with springboards and resize all sticky notes and get them inside the kanban board',
+      }),
+    );
+    const body = await response.json() as {
+      success: boolean;
+      actions: Array<{ tool: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(4);
+    expect(mockTracing).not.toHaveBeenCalled();
+
+    const correctionCall = mockExecute.mock.calls[3]?.[0] ?? [];
+    expect(correctionCall.some((call: { function?: { name?: string } }) => call.function?.name === 'createFrame')).toBe(true);
+    expect(correctionCall.some((call: { function?: { name?: string } }) => call.function?.name === 'resizeObject')).toBe(true);
+    expect(correctionCall.some((call: { function?: { name?: string } }) => call.function?.name === 'moveObject')).toBe(true);
+    expect(body.actions.some((action) => action.tool === 'createFrame')).toBe(true);
   });
 });

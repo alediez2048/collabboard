@@ -6,13 +6,24 @@ import { createClient } from '@/lib/supabase/client';
 
 interface CreateBoardButtonProps {
   userId: string;
+  label?: string;
+  className?: string;
+  dataTestId?: string;
 }
 
-export function CreateBoardButton({ userId }: CreateBoardButtonProps) {
+const DEFAULT_BUTTON_CLASS =
+  'inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed';
+
+export function CreateBoardButton({
+  userId,
+  label = '+ Create Board',
+  className,
+  dataTestId,
+}: CreateBoardButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  const handleCreateBoard = async () => {
+  const handleCreateBoard = async (): Promise<void> => {
     setLoading(true);
     try {
       const supabase = createClient();
@@ -41,11 +52,13 @@ export function CreateBoardButton({ userId }: CreateBoardButtonProps) {
 
   return (
     <button
+      type="button"
       onClick={handleCreateBoard}
       disabled={loading}
-      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+      data-testid={dataTestId}
+      className={className ?? DEFAULT_BUTTON_CLASS}
     >
-      {loading ? 'Creating...' : '+ Create Board'}
+      {loading ? 'Creating...' : label}
     </button>
   );
 }

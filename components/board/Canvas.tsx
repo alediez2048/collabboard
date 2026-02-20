@@ -9,6 +9,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { Socket } from 'socket.io-client';
 import { useUIStore } from '@/stores/ui-store';
 import { Grid } from './Grid';
+import { BoardHeader } from './BoardHeader';
 import { Toolbar } from './Toolbar';
 import { StickyNote } from './StickyNote';
 import { TextEditor } from './TextEditor';
@@ -17,10 +18,19 @@ import { RemoteCursorsLayer } from './RemoteCursorsLayer';
 import { ShareButton } from './ShareButton';
 import { PresenceBar } from './PresenceBar';
 import { PerformanceHUD } from './PerformanceHUD';
-import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
+import {
+  createBoardDoc,
+  addObject,
+  updateObject,
+  updateObjectPositions,
+  removeObject,
+  getAllObjects,
+  applyObjectMapChanges,
+  type BoardObject,
+} from '@/lib/yjs/board-doc';
 import { Shape } from './Shape';
 import { Frame } from './Frame';
-import { Connector } from './Connector';
+import { Connector, getConnectorLinePoints, type ConnectorLinePoints } from './Connector';
 import { createYjsProvider } from '@/lib/yjs/provider';
 import { createCursorSocket, emitCursorMove, type CursorMoveEvent } from '@/lib/sync/cursor-socket';
 import { createThrottle } from '@/lib/sync/throttle';
@@ -44,6 +54,7 @@ import { AICommandBar } from './AICommandBar';
 
 interface CanvasProps {
   boardId: string;
+  boardName: string;
 }
 
 /**
@@ -90,7 +101,7 @@ function appendRollingSample(
   return total / samples.length;
 }
 
-export function Canvas({ boardId }: CanvasProps) {
+export function Canvas({ boardId, boardName }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const shapeRefs = useRef<Map<string, Konva.Node>>(new Map());
@@ -133,6 +144,8 @@ export function Canvas({ boardId }: CanvasProps) {
     additive: boolean;
   } | null>(null);
   const [isStagePanning, setIsStagePanning] = useState(false);
+  const [isWheelZooming, setIsWheelZooming] = useState(false);
+  const [isObjectDragging, setIsObjectDragging] = useState(false);
   const [isMultiDragActive, setIsMultiDragActive] = useState(false);
   const multiDragSessionRef = useRef<{
     primaryId: string;
@@ -153,6 +166,8 @@ export function Canvas({ boardId }: CanvasProps) {
     emittedInWindow: 0,
     lastLogAt: 0,
   });
+  const pendingObjectChangeIdsRef = useRef<Set<string>>(new Set());
+  const boardObjectIndexByIdRef = useRef<Map<string, number>>(new Map());
   const boardObserverMetricsRef = useRef({
     observedInWindow: 0,
     flushedInWindow: 0,
@@ -206,6 +221,7 @@ export function Canvas({ boardId }: CanvasProps) {
     pixelDeltaY: 0,
     pointer: null,
   });
+  const wheelZoomIdleResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const objectLookup = useMemo(
     () => buildObjectLookup(boardObjects),
@@ -215,6 +231,10 @@ export function Canvas({ boardId }: CanvasProps) {
     () => new Set(selectedObjectIds),
     [selectedObjectIds],
   );
+  const isDenseBoard = boardObjects.length >= 500;
+  const simplifyDenseInteractionRendering =
+    isDenseBoard &&
+    (isStagePanning || isWheelZooming || isObjectDragging || isMultiDragActive);
 
   useEffect(() => {
     viewportRef.current = { zoom, pan };
@@ -227,7 +247,7 @@ export function Canvas({ boardId }: CanvasProps) {
 
   const visibleBoardObjects = useMemo(() => {
     // Culling has overhead; skip it on small boards.
-    if (boardObjects.length <= 150) {
+    if (boardObjects.length <= 220) {
       return boardObjects;
     }
 
@@ -242,7 +262,14 @@ export function Canvas({ boardId }: CanvasProps) {
 
   const layeredVisibleObjects = useMemo(() => {
     const frames: BoardObject[] = [];
-    const connectors: BoardObject[] = [];
+    const connectors: Array<{
+      object: BoardObject;
+      fromId: string;
+      toId: string;
+      color: string;
+      strokeWidth: number;
+      points: ConnectorLinePoints | null;
+    }> = [];
     const shapes: BoardObject[] = [];
     const stickyNotes: BoardObject[] = [];
 
@@ -250,7 +277,23 @@ export function Canvas({ boardId }: CanvasProps) {
       if (object.type === 'frame') {
         frames.push(object);
       } else if (object.type === 'connector') {
-        connectors.push(object);
+        const fromId = String(object.properties.fromId ?? '');
+        const toId = String(object.properties.toId ?? '');
+        const fromObject = objectLookup.get(fromId);
+        const toObject = objectLookup.get(toId);
+        const points =
+          fromObject && toObject
+            ? getConnectorLinePoints(fromObject, toObject)
+            : null;
+
+        connectors.push({
+          object,
+          fromId,
+          toId,
+          color: String(object.properties.color ?? '#1d4ed8'),
+          strokeWidth: Number(object.properties.strokeWidth ?? 2),
+          points,
+        });
       } else if (object.type === 'sticky_note') {
         stickyNotes.push(object);
       } else if (
@@ -263,7 +306,7 @@ export function Canvas({ boardId }: CanvasProps) {
     }
 
     return { frames, connectors, shapes, stickyNotes };
-  }, [visibleBoardObjects]);
+  }, [visibleBoardObjects, objectLookup]);
 
   // Handle window resize
   useEffect(() => {
@@ -364,6 +407,10 @@ export function Canvas({ boardId }: CanvasProps) {
       if (zoomSpeedMetrics.idleResetTimer !== null) {
         clearTimeout(zoomSpeedMetrics.idleResetTimer);
       }
+      if (wheelZoomIdleResetTimerRef.current !== null) {
+        clearTimeout(wheelZoomIdleResetTimerRef.current);
+        wheelZoomIdleResetTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -461,6 +508,17 @@ export function Canvas({ boardId }: CanvasProps) {
       pageHeight,
     );
     wheelState.pointer = { x: pointer.x, y: pointer.y };
+
+    if (!isWheelZooming) {
+      setIsWheelZooming(true);
+    }
+    if (wheelZoomIdleResetTimerRef.current !== null) {
+      clearTimeout(wheelZoomIdleResetTimerRef.current);
+    }
+    wheelZoomIdleResetTimerRef.current = setTimeout(() => {
+      setIsWheelZooming(false);
+      wheelZoomIdleResetTimerRef.current = null;
+    }, 180);
 
     if (wheelState.rafId !== null) return;
     wheelState.rafId = window.requestAnimationFrame(flushPendingWheelZoom);
@@ -673,40 +731,65 @@ export function Canvas({ boardId }: CanvasProps) {
     if (!yDoc) return;
 
     const objects = yDoc.getMap<BoardObject>('objects');
+    const pendingObjectChangeIds = pendingObjectChangeIdsRef.current;
+    const boardObjectIndexById = boardObjectIndexByIdRef.current;
     let frameId: number | null = null;
+    let isInitialFlush = true;
 
     const flushBoardObjects = (): void => {
       frameId = null;
-      const allObjects = getAllObjects(objects);
-      setBoardObjects(allObjects);
+      const changedKeysSnapshot = Array.from(pendingObjectChangeIds);
+      pendingObjectChangeIds.clear();
+      const runFullLoad = isInitialFlush;
+      isInitialFlush = false;
 
-      if (process.env.NODE_ENV === 'development') {
-        const now = Date.now();
-        const metrics = boardObserverMetricsRef.current;
-        metrics.flushedInWindow += 1;
+      setBoardObjects((previousObjects) => {
+        const nextObjects = runFullLoad
+          ? (() => {
+              const fullObjects = getAllObjects(objects);
+              boardObjectIndexById.clear();
+              for (let index = 0; index < fullObjects.length; index += 1) {
+                boardObjectIndexById.set(fullObjects[index].id, index);
+              }
+              return fullObjects;
+            })()
+          : applyObjectMapChanges(
+              previousObjects,
+              objects,
+              changedKeysSnapshot,
+              boardObjectIndexById,
+            );
 
-        if (metrics.lastLogAt === 0) {
-          metrics.lastLogAt = now;
-          return;
+        if (process.env.NODE_ENV === 'development') {
+          const now = Date.now();
+          const metrics = boardObserverMetricsRef.current;
+          metrics.flushedInWindow += 1;
+
+          if (metrics.lastLogAt === 0) {
+            metrics.lastLogAt = now;
+            return nextObjects;
+          }
+
+          const elapsedMs = now - metrics.lastLogAt;
+          if (elapsedMs >= 5000) {
+            console.debug('[Canvas Perf] yjs observer throughput', {
+              observedPerSecond: Number(
+                (metrics.observedInWindow / (elapsedMs / 1000)).toFixed(1),
+              ),
+              flushedPerSecond: Number(
+                (metrics.flushedInWindow / (elapsedMs / 1000)).toFixed(1),
+              ),
+              objectCount: nextObjects.length,
+            });
+
+            metrics.observedInWindow = 0;
+            metrics.flushedInWindow = 0;
+            metrics.lastLogAt = now;
+          }
         }
 
-        const elapsedMs = now - metrics.lastLogAt;
-        if (elapsedMs >= 5000) {
-          console.debug('[Canvas Perf] yjs observer throughput', {
-            observedPerSecond: Number(
-              (metrics.observedInWindow / (elapsedMs / 1000)).toFixed(1),
-            ),
-            flushedPerSecond: Number(
-              (metrics.flushedInWindow / (elapsedMs / 1000)).toFixed(1),
-            ),
-            objectCount: allObjects.length,
-          });
-
-          metrics.observedInWindow = 0;
-          metrics.flushedInWindow = 0;
-          metrics.lastLogAt = now;
-        }
-      }
+        return nextObjects;
+      });
     };
 
     const scheduleBoardFlush = (): void => {
@@ -721,6 +804,7 @@ export function Canvas({ boardId }: CanvasProps) {
 
       const now = Date.now();
       for (const key of event.keysChanged) {
+        pendingObjectChangeIds.add(key);
         const changedObject = objects.get(key);
         if (!changedObject) continue;
         if (changedObject.createdBy === sessionUserIdRef.current) continue;
@@ -749,6 +833,7 @@ export function Canvas({ boardId }: CanvasProps) {
     objects.observe(observer);
 
     // Initial load
+    pendingObjectChangeIds.clear();
     flushBoardObjects();
 
     return () => {
@@ -756,6 +841,8 @@ export function Canvas({ boardId }: CanvasProps) {
         window.cancelAnimationFrame(frameId);
       }
       objects.unobserve(observer);
+      pendingObjectChangeIds.clear();
+      boardObjectIndexById.clear();
     };
   }, [yDoc]);
 
@@ -1101,6 +1188,8 @@ export function Canvas({ boardId }: CanvasProps) {
   };
 
   const handleObjectDragStart = (id: string): void => {
+    setIsObjectDragging(true);
+
     if (selectedObjectIds.length < 2 || !selectedObjectIdSet.has(id)) {
       clearMultiDragSession();
       return;
@@ -1160,6 +1249,8 @@ export function Canvas({ boardId }: CanvasProps) {
 
   // Handle object drag end — update position in Yjs
   const handleObjectDragEnd = (id: string, x: number, y: number): void => {
+    setIsObjectDragging(false);
+
     if (!yDoc) {
       clearMultiDragSession();
       return;
@@ -1190,11 +1281,10 @@ export function Canvas({ boardId }: CanvasProps) {
         session.initialPositions,
         dragDelta,
       );
+      const updatedAt = new Date().toISOString();
 
       yDoc.transact(() => {
-        updates.forEach((update) => {
-          updateObject(objects, update.id, { x: update.x, y: update.y });
-        });
+        updateObjectPositions(objects, updates, updatedAt);
       });
 
       clearMultiDragSession();
@@ -1211,7 +1301,7 @@ export function Canvas({ boardId }: CanvasProps) {
     if (!tr) return;
 
     const isSingleSelection = selectedObjectIds.length === 1;
-    const selected = boardObjects.find((o) => o.id === selectedObjectId);
+    const selected = selectedObjectId ? objectLookup.get(selectedObjectId) : undefined;
     // Lines and connectors don't get resize/rotate handles
     const excluded = !selected || selected.type === 'line' || selected.type === 'connector';
     const node =
@@ -1221,7 +1311,7 @@ export function Canvas({ boardId }: CanvasProps) {
 
     tr.nodes(node && !excluded ? [node] : []);
     tr.getLayer()?.batchDraw();
-  }, [selectedObjectId, selectedObjectIds, boardObjects]);
+  }, [selectedObjectId, selectedObjectIds, objectLookup]);
 
   // Called by each object after the Transformer interaction ends
   const handleTransformEnd = (id: string): void => {
@@ -1386,7 +1476,7 @@ export function Canvas({ boardId }: CanvasProps) {
         top,
         right,
         bottom,
-      });
+      }, objectLookup);
       const nextIds = marqueeSelection.additive
         ? Array.from(new Set([...selectedObjectIds, ...intersectingIds]))
         : intersectingIds;
@@ -1465,16 +1555,18 @@ export function Canvas({ boardId }: CanvasProps) {
 
   // Get editing object details
   const editingObject = editingObjectId
-    ? boardObjects.find((obj) => obj.id === editingObjectId)
+    ? objectLookup.get(editingObjectId) ?? null
     : null;
 
   // Get selected object for color picker
   const selectedObject = selectedObjectIds.length === 1 && selectedObjectId
-    ? boardObjects.find((obj) => obj.id === selectedObjectId)
+    ? objectLookup.get(selectedObjectId) ?? null
     : null;
 
   return (
     <div className="fixed inset-0 bg-gray-50">
+      <BoardHeader boardName={boardName} />
+
       {/* Toolbar */}
       <Toolbar />
 
@@ -1570,7 +1662,7 @@ export function Canvas({ boardId }: CanvasProps) {
           scale={zoom}
           offsetX={pan.x}
           offsetY={pan.y}
-          isPanning={isStagePanning}
+          isPanning={isStagePanning || isWheelZooming}
         />
 
         {/* Main content layer */}
@@ -1603,16 +1695,17 @@ export function Canvas({ boardId }: CanvasProps) {
             ))}
 
           {/* 2. Connectors — above frames, below shapes */}
-          {layeredVisibleObjects.connectors.map((obj) => (
+          {layeredVisibleObjects.connectors.map((connector) => (
               <Connector
-                key={obj.id}
-                id={obj.id}
-                fromId={String(obj.properties.fromId ?? '')}
-                toId={String(obj.properties.toId ?? '')}
-                color={String(obj.properties.color ?? '#1d4ed8')}
-                strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
+                key={connector.object.id}
+                id={connector.object.id}
+                fromId={connector.fromId}
+                toId={connector.toId}
+                color={connector.color}
+                strokeWidth={connector.strokeWidth}
+                points={connector.points}
                 objectLookup={objectLookup}
-                isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                isSelected={selectedObjectIdSet.has(connector.object.id) && !editingObjectId}
                 onSelect={handleSelectObject}
               />
             ))}
@@ -1638,7 +1731,7 @@ export function Canvas({ boardId }: CanvasProps) {
                 x2={obj.properties.x2 !== undefined ? Number(obj.properties.x2) : undefined}
                 y2={obj.properties.y2 !== undefined ? Number(obj.properties.y2) : undefined}
                 isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
-                reduceEffects={isStagePanning || (isMultiDragActive && selectedObjectIdSet.has(obj.id))}
+                reduceEffects={simplifyDenseInteractionRendering}
                 onSelect={handleSelectObject}
                 onDragStart={handleObjectDragStart}
                 onDragMove={handleObjectDragMove}
@@ -1716,7 +1809,8 @@ export function Canvas({ boardId }: CanvasProps) {
                 text={String(obj.properties.text || '')}
                 color={String(obj.properties.color || '#ffeb3b')}
                 isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
-                reduceEffects={isStagePanning || (isMultiDragActive && selectedObjectIdSet.has(obj.id))}
+                reduceEffects={simplifyDenseInteractionRendering}
+                hideText={simplifyDenseInteractionRendering}
                 onSelect={handleSelectObject}
                 onDragStart={handleObjectDragStart}
                 onDragMove={handleObjectDragMove}

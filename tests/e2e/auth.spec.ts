@@ -53,8 +53,8 @@ test.describe('Authentication Flow', () => {
     // Should see "Your Boards" heading
     await expect(page.locator('h1')).toContainText('Your Boards');
     
-    // Should see user email in navbar
-    await expect(page.locator('text=' + TEST_EMAIL)).toBeVisible();
+    // Should see user email in dashboard chrome
+    await expect(page.getByText(TEST_EMAIL).first()).toBeVisible();
     
     // Should see logout button
     await expect(page.locator('button:has-text("Log out")')).toBeVisible();

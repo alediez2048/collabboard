@@ -442,6 +442,9 @@ git push origin main
 ### E2E Tests (Playwright)
 
 ```bash
+# Install Chromium once on fresh machines (optional)
+npm run test:e2e:setup
+
 # Run all E2E tests (headless)
 npm run test:e2e
 
@@ -460,6 +463,8 @@ npx playwright test tests/e2e/auth.spec.ts
 # Run single test
 npx playwright test tests/e2e/auth.spec.ts:25
 ```
+
+`npm run test:e2e` automatically runs a pretest browser install (`playwright install chromium`) to prevent missing-executable failures on fresh environments.
 
 **See also:** `tests/e2e/README.md` for detailed Playwright documentation.
 

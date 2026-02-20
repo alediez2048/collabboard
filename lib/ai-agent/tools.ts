@@ -34,6 +34,7 @@ export interface CreateFrameArgs {
 export interface CreateConnectorArgs {
   fromId: string;
   toId: string;
+  style?: string;
 }
 
 export interface MoveObjectArgs {
@@ -127,6 +128,7 @@ export const AI_TOOLS: ChatCompletionFunctionTool[] = [
         properties: {
           fromId: { type: 'string', description: 'The object ID where the connector starts.' },
           toId: { type: 'string', description: 'The object ID where the connector ends.' },
+          style: { type: 'string', description: 'Optional connector style keyword (e.g. solid, dashed).' },
         },
         required: ['fromId', 'toId'],
       },
@@ -253,6 +255,9 @@ export function validateCreateConnectorArgs(args: Record<string, unknown>): Vali
   if (!isNonEmptyString(args.fromId)) return { valid: false, error: 'fromId must be a non-empty string' };
   if (!isNonEmptyString(args.toId)) return { valid: false, error: 'toId must be a non-empty string' };
   if (args.fromId === args.toId) return { valid: false, error: 'fromId and toId cannot be the same object' };
+  if (args.style !== undefined && !isNonEmptyString(args.style)) {
+    return { valid: false, error: 'style must be a non-empty string when provided' };
+  }
   return { valid: true };
 }
 

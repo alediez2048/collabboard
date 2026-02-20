@@ -312,28 +312,36 @@ describe('Yjs Board Document Sync', () => {
   });
 
   describe('Stress: high object count', () => {
-    it('correctly encodes and decodes 500 objects without data loss', () => {
-      const { doc, objects } = createBoardDoc();
+    [500, 1000, 2000].forEach((objectCount) => {
+      it(`correctly encodes and decodes ${objectCount} objects without data loss`, () => {
+        const { doc, objects } = createBoardDoc();
 
-      for (let i = 0; i < 500; i++) {
-        addObject(objects, makeStickyNote(`stress-${i}`, { x: (i % 50) * 200, y: Math.floor(i / 50) * 200 }));
-      }
+        for (let i = 0; i < objectCount; i++) {
+          addObject(
+            objects,
+            makeStickyNote(`stress-${i}`, {
+              x: (i % 50) * 200,
+              y: Math.floor(i / 50) * 200,
+            }),
+          );
+        }
 
-      expect(objects.size).toBe(500);
+        expect(objects.size).toBe(objectCount);
 
-      // Simulate persistence round-trip (encode → new doc → decode)
-      const snapshot = Y.encodeStateAsUpdate(doc);
+        // Simulate persistence round-trip (encode → new doc → decode)
+        const snapshot = Y.encodeStateAsUpdate(doc);
 
-      const { doc: restored, objects: restoredObjects } = createBoardDoc();
-      Y.applyUpdate(restored, snapshot);
+        const { doc: restored, objects: restoredObjects } = createBoardDoc();
+        Y.applyUpdate(restored, snapshot);
 
-      expect(restoredObjects.size).toBe(500);
-      expect(getAllObjects(restoredObjects)).toHaveLength(500);
+        expect(restoredObjects.size).toBe(objectCount);
+        expect(getAllObjects(restoredObjects)).toHaveLength(objectCount);
 
-      // Spot-check a few
-      expect(restoredObjects.get('stress-0')).toBeDefined();
-      expect(restoredObjects.get('stress-249')).toBeDefined();
-      expect(restoredObjects.get('stress-499')).toBeDefined();
+        // Spot-check first, middle, and last
+        expect(restoredObjects.get('stress-0')).toBeDefined();
+        expect(restoredObjects.get(`stress-${Math.floor(objectCount / 2)}`)).toBeDefined();
+        expect(restoredObjects.get(`stress-${objectCount - 1}`)).toBeDefined();
+      });
     });
 
     it('handles 500 rapid sequential updates without losing the final state', () => {
@@ -356,27 +364,33 @@ describe('Yjs Board Document Sync', () => {
       expect(restored?.y).toBe(2495); // 499 * 5
     });
 
-    it('syncs a 500-object snapshot to another doc in under 100ms locally', () => {
-      const { doc: sourceDoc, objects: sourceObjects } = createBoardDoc();
-      const { doc: targetDoc, objects: targetObjects } = createBoardDoc();
+    [
+      { objectCount: 500, maxLatencyMs: 100 },
+      { objectCount: 1000, maxLatencyMs: 180 },
+      { objectCount: 2000, maxLatencyMs: 320 },
+    ].forEach(({ objectCount, maxLatencyMs }) => {
+      it(`syncs a ${objectCount}-object snapshot to another doc within ${maxLatencyMs}ms locally`, () => {
+        const { doc: sourceDoc, objects: sourceObjects } = createBoardDoc();
+        const { doc: targetDoc, objects: targetObjects } = createBoardDoc();
 
-      for (let i = 0; i < 500; i++) {
-        addObject(
-          sourceObjects,
-          makeStickyNote(`latency-${i}`, {
-            x: (i % 50) * 150,
-            y: Math.floor(i / 50) * 150,
-          }),
-        );
-      }
+        for (let i = 0; i < objectCount; i++) {
+          addObject(
+            sourceObjects,
+            makeStickyNote(`latency-${i}`, {
+              x: (i % 50) * 150,
+              y: Math.floor(i / 50) * 150,
+            }),
+          );
+        }
 
-      const startedAt = performance.now();
-      const update = Y.encodeStateAsUpdate(sourceDoc);
-      Y.applyUpdate(targetDoc, update);
-      const elapsedMs = performance.now() - startedAt;
+        const startedAt = performance.now();
+        const update = Y.encodeStateAsUpdate(sourceDoc);
+        Y.applyUpdate(targetDoc, update);
+        const elapsedMs = performance.now() - startedAt;
 
-      expect(targetObjects.size).toBe(500);
-      expect(elapsedMs).toBeLessThan(100);
+        expect(targetObjects.size).toBe(objectCount);
+        expect(elapsedMs).toBeLessThan(maxLatencyMs);
+      });
     });
   });
 

@@ -5,7 +5,7 @@ Built with Next.js (App Router), Konva, Yjs, Socket.io, Supabase, and OpenAI too
 
 - **Live App:** https://collabboard-gauntlet.vercel.app
 - **GitHub:** https://github.com/alediez2048/Gauntlet-Assignment-1
-- **Demo Video:** _Add final URL in TICKET-14 delivery pass_
+- **Demo Video:** _URL intentionally deferred to final project closeout_
 
 ---
 
@@ -99,11 +99,14 @@ npm run build
 npm start
 npm run lint
 npm test
+npm run test:e2e:setup
 npm run test:e2e
 npm run test:e2e:ui
 npm run test:e2e:headed
 npm run test:e2e:debug
 ```
+
+`npm run test:e2e` includes a pretest hook that installs Playwright Chromium if it is missing. On a fresh machine, you can also run `npm run test:e2e:setup` once up front.
 
 ### Realtime server (`server/`)
 
@@ -161,7 +164,7 @@ documentation/           PRD, architecture, testing, tickets, reference docs
 
 ## Notes For Final Submission
 
-- Add final demo URL in this README and in `documentation/tickets/DEV-LOG.md`.
+- Add final demo URL + LangSmith dashboard URL + Langfuse dashboard URL in final closeout pass.
 - Cost figures are documented in `documentation/reference/AI-COST-ANALYSIS.md` and should be paired with latest dashboard screenshots before submission.
 
 ---

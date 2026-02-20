@@ -122,12 +122,13 @@ export function isObjectVisible(
 export function selectIntersectingObjectIds(
   objects: BoardObject[],
   selectionBounds: ViewportBounds,
+  objectLookup?: ReadonlyMap<string, BoardObject>,
 ): string[] {
-  const objectLookup = buildObjectLookup(objects);
+  const lookup = objectLookup ?? buildObjectLookup(objects);
   const selectedIds: string[] = [];
 
   for (const object of objects) {
-    if (isObjectVisible(object, selectionBounds, objectLookup)) {
+    if (isObjectVisible(object, selectionBounds, lookup)) {
       selectedIds.push(object.id);
     }
   }

@@ -122,4 +122,22 @@ describe('viewport culling utilities', () => {
       'from',
     ]);
   });
+
+  it('reuses a precomputed object lookup when provided', () => {
+    const from = makeObject('from', 'sticky_note', { x: 20, y: 20, width: 100, height: 100 });
+    const to = makeObject('to', 'sticky_note', { x: 900, y: 900, width: 100, height: 100 });
+    const connector = makeObject('connector-1', 'connector', {
+      properties: { fromId: 'from', toId: 'to' },
+      x: 5000,
+      y: 5000,
+      width: 0,
+      height: 0,
+    });
+
+    const nearSelection = { left: 0, top: 0, right: 200, bottom: 200 };
+    const lookup = buildObjectLookup([from, to, connector]);
+    const selected = selectIntersectingObjectIds([connector], nearSelection, lookup);
+
+    expect(selected).toEqual(['connector-1']);
+  });
 });

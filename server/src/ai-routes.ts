@@ -218,6 +218,7 @@ function applyMutation(
         properties: {
           fromId: args.fromId as string,
           toId: args.toId as string,
+          style: typeof args.style === 'string' ? args.style : 'solid',
           color: '#1d4ed8',
           strokeWidth: 2,
         },

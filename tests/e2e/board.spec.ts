@@ -1,121 +1,131 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-const TEST_EMAIL = `board-test-${Date.now()}@collabboard.dev`;
 const TEST_PASSWORD = 'TestPassword123!';
 
+const makeUniqueEmail = (suffix: string): string =>
+  `board-test-${suffix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@collabboard.dev`;
+
+async function signUpAndLandOnBoards(page: Page, suffix: string): Promise<string> {
+  const email = makeUniqueEmail(suffix);
+  await page.goto('/login');
+  await page.getByRole('button', { name: "Don't have an account? Sign up" }).click();
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password').fill(TEST_PASSWORD);
+  await page.getByRole('button', { name: 'Sign up' }).click();
+  await page.waitForURL('/', { timeout: 15000 });
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Your Boards');
+  return email;
+}
+
+async function createBoard(page: Page): Promise<string> {
+  await page.getByRole('button', { name: /create board/i }).click();
+  await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/, { timeout: 10000 });
+  const boardId = page.url().split('/').pop();
+  if (!boardId) {
+    throw new Error('Unable to parse board id from URL');
+  }
+  return boardId;
+}
+
 test.describe('Board Management', () => {
-  test.beforeEach(async ({ page }) => {
-    // Sign up before each test
-    await page.goto('/login');
-    await page.click('text="Don\'t have an account? Sign up"');
-    await page.fill('input[type="email"]', TEST_EMAIL);
-    await page.fill('input[type="password"]', TEST_PASSWORD);
-    await page.click('button[type="submit"]');
-    
-    // Wait for redirect and page load
-    await page.waitForURL('/', { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
-  });
+  test('persists active dashboard section and keeps create CTA available', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'dashboard-section');
 
-  test('shows empty state when no boards exist', async ({ page }) => {
-    // Should see "Your Boards" heading
-    await expect(page.locator('h1')).toContainText('Your Boards');
-    
-    // Should see create board button
-    await expect(page.locator('button:has-text("Create Board")')).toBeVisible();
-    
-    // Should see empty state message
-    await expect(page.locator('text=/No boards yet|Create your first board/i')).toBeVisible();
-  });
+    const recentNav = page.getByTestId('dashboard-nav-recent');
+    await recentNav.click();
+    await expect(page).toHaveURL(/\/\?section=recent/);
+    await expect(recentNav).toHaveAttribute('aria-current', 'page');
 
-  test('allows user to create a board', async ({ page }) => {
-    // Click create board button
-    await page.click('button:has-text("Create Board")');
-    
-    // Should redirect to board page
-    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/, { timeout: 10000 });
-    
-    // Should see board name "Untitled Board"
-    await expect(page.locator('h1')).toContainText('Untitled Board', { timeout: 5000 });
-    
-    // Should see canvas placeholder text
-    await expect(page.locator('text="Canvas will go here (TICKET-02)"')).toBeVisible();
-  });
-
-  test('displays created board in board list', async ({ page }) => {
-    // Create a board
-    await page.click('button:has-text("Create Board")');
-    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/);
-    
-    // Go back to home
-    await page.click('a:has-text("CollabBoard")');
-    await expect(page).toHaveURL('/');
-    
-    // Should see the created board in the list
-    await expect(page.locator('text=Untitled Board')).toBeVisible();
-    
-    // Should see creation date
-    await expect(page.locator('text=/Created/i')).toBeVisible();
-  });
-
-  test('allows user to navigate to board from list', async ({ page }) => {
-    // Create a board
-    await page.click('button:has-text("Create Board")');
-    const boardUrl = page.url();
-    const boardId = boardUrl.split('/').pop();
-    
-    // Go back to home
-    await page.click('a:has-text("CollabBoard")');
-    
-    // Click on the board card
-    await page.click('text=Untitled Board');
-    
-    // Should navigate to the board
-    await expect(page).toHaveURL(`/board/${boardId}`, { timeout: 5000 });
-    await expect(page.locator('h1')).toContainText('Untitled Board');
-  });
-
-  test('persists board after page refresh', async ({ page }) => {
-    // Create a board
-    await page.click('button:has-text("Create Board")');
-    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/);
-    const boardUrl = page.url();
-    
-    // Refresh the page
     await page.reload();
-    
-    // Should still show the board
-    await expect(page).toHaveURL(boardUrl);
-    await expect(page.locator('h1')).toContainText('Untitled Board');
+    await expect(page).toHaveURL(/\/\?section=recent/);
+    await expect(page.getByTestId('dashboard-nav-recent')).toHaveAttribute('aria-current', 'page');
+
+    const createButton = page.getByTestId('dashboard-create-board-button');
+    await expect(createButton).toBeVisible();
+    await createButton.click();
+    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/, { timeout: 10000 });
   });
 
-  test('shows multiple boards when created', async ({ page }) => {
-    // Create first board
-    await page.click('button:has-text("Create Board")');
-    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/);
-    
-    // Go back and create second board
-    await page.click('a:has-text("CollabBoard")');
-    await page.click('button:has-text("Create Board")');
-    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/);
-    
-    // Go back to home
-    await page.click('a:has-text("CollabBoard")');
-    
-    // Should see two boards
-    const boardCards = page.locator('text=Untitled Board');
-    await expect(boardCards).toHaveCount(2);
+  test('renames a board from the board list and persists after refresh', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'rename');
+    const boardId = await createBoard(page);
+    await page.goto('/');
+
+    await page.getByTestId(`board-name-display-${boardId}`).click();
+    const input = page.getByTestId(`board-name-input-${boardId}`);
+    await expect(input).toBeVisible();
+    await input.fill('Product Planning Board');
+    await page.getByRole('button', { name: 'Save board name' }).click();
+
+    await expect(page.getByTestId(`board-name-display-${boardId}`)).toContainText('Product Planning Board');
+    await page.reload();
+    await expect(page.getByTestId(`board-name-display-${boardId}`)).toContainText('Product Planning Board');
   });
 
-  test('maintains authentication across board navigation', async ({ page }) => {
-    // Create a board
-    await page.click('button:has-text("Create Board")');
-    await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/);
-    
-    // Should still see user email in navbar
-    await expect(page.locator('text=' + TEST_EMAIL)).toBeVisible();
-    
-    // Should still see logout button
-    await expect(page.locator('button:has-text("Log out")')).toBeVisible();
+  test('blocks invalid inline board rename for whitespace-only value', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'rename-invalid');
+    const boardId = await createBoard(page);
+    await page.goto('/');
+
+    await page.getByTestId(`board-name-display-${boardId}`).click();
+    const input = page.getByTestId(`board-name-input-${boardId}`);
+    await input.fill('   ');
+    await page.getByRole('button', { name: 'Save board name' }).click();
+
+    await expect(page.getByText('Board name cannot be empty.')).toBeVisible();
+  });
+
+  test('deletes a board only after explicit confirmation', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'delete');
+    const boardId = await createBoard(page);
+    await page.goto('/');
+
+    await page.getByTestId(`delete-board-${boardId}`).click();
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+    await expect(page.getByText('This cannot be undone')).toBeVisible();
+
+    await page.getByTestId('cancel-delete-board').click();
+    await expect(page.getByTestId('confirm-dialog')).not.toBeVisible();
+    await expect(page.getByTestId(`board-card-${boardId}`)).toBeVisible();
+
+    await page.getByTestId(`delete-board-${boardId}`).click();
+    await page.getByTestId('confirm-delete-board').click();
+    await expect(page.getByTestId(`board-card-${boardId}`)).not.toBeVisible();
+  });
+
+  test('shows board name in board header and supports back navigation', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'header');
+    await createBoard(page);
+
+    await expect(page.getByTestId('board-header-name')).toContainText('Untitled Board');
+    await page.getByTestId('back-to-boards-button').click();
+
+    await expect(page).toHaveURL('/');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Your Boards');
+  });
+
+  test('copies share link from board view', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'share');
+    const boardId = await createBoard(page);
+
+    await page.evaluate(() => {
+      (window as unknown as { __copiedText?: string }).__copiedText = '';
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            (window as unknown as { __copiedText?: string }).__copiedText = text;
+          },
+        },
+      });
+    });
+
+    await page.getByTestId('share-board-button').click();
+    await expect(page.getByText('Link copied!')).toBeVisible();
+
+    const copiedText = await page.evaluate(
+      () => (window as unknown as { __copiedText?: string }).__copiedText ?? '',
+    );
+    expect(copiedText).toContain(`/board/${boardId}`);
   });
 });

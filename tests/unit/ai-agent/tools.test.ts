@@ -37,6 +37,13 @@ describe('AI Tool Definitions', () => {
   it('has at least 9 tools', () => {
     expect(AI_TOOLS.length).toBeGreaterThanOrEqual(9);
   });
+
+  it('includes connector style in schema for createConnector', () => {
+    const connectorTool = AI_TOOLS.find((tool) => tool.function.name === 'createConnector');
+    const properties = connectorTool?.function.parameters?.properties as Record<string, unknown> | undefined;
+    expect(properties).toBeDefined();
+    expect(properties).toHaveProperty('style');
+  });
 });
 
 describe('validateCreateStickyNoteArgs', () => {
@@ -107,6 +114,11 @@ describe('validateCreateConnectorArgs', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('accepts connector style when provided', () => {
+    const result = validateCreateConnectorArgs({ fromId: 'obj-a', toId: 'obj-b', style: 'dashed' });
+    expect(result.valid).toBe(true);
+  });
+
   it('rejects self-connector (fromId equals toId)', () => {
     const result = validateCreateConnectorArgs({ fromId: 'same-id', toId: 'same-id' });
     expect(result.valid).toBe(false);
@@ -119,6 +131,11 @@ describe('validateCreateConnectorArgs', () => {
 
   it('rejects empty toId', () => {
     const result = validateCreateConnectorArgs({ fromId: 'obj-a', toId: '' });
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects empty style when style is provided', () => {
+    const result = validateCreateConnectorArgs({ fromId: 'obj-a', toId: 'obj-b', style: '' });
     expect(result.valid).toBe(false);
   });
 });

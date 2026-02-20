@@ -1,0 +1,112 @@
+import { DashboardBoardCard } from '@/components/dashboard/DashboardBoardCard';
+import {
+  getDashboardSectionMeta,
+  type DashboardSection,
+} from '@/lib/dashboard/navigation';
+import type { Board } from '@/types/board';
+import type { ReactElement } from 'react';
+
+interface DashboardSectionContentProps {
+  boards: Board[];
+  userId: string;
+  activeSection: DashboardSection;
+}
+
+function EmptySection({
+  title,
+  description,
+  testId,
+}: {
+  title: string;
+  description: string;
+  testId: string;
+}): ReactElement {
+  return (
+    <section
+      data-testid={testId}
+      className="rounded-xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center"
+    >
+      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      <p className="mt-2 text-sm text-gray-600">{description}</p>
+    </section>
+  );
+}
+
+export function DashboardSectionContent({
+  boards,
+  userId,
+  activeSection,
+}: DashboardSectionContentProps): ReactElement {
+  const sectionMeta = getDashboardSectionMeta(activeSection);
+  const ownedBoards = boards.filter((board) => board.created_by === userId);
+  const sharedBoards = boards.filter((board) => board.created_by !== userId);
+
+  if (activeSection === 'home') {
+    if (boards.length === 0) {
+      return (
+        <EmptySection
+          testId="dashboard-empty-home"
+          title={sectionMeta.emptyStateTitle}
+          description={sectionMeta.emptyStateDescription}
+        />
+      );
+    }
+
+    return (
+      <section data-testid="dashboard-section-home" className="space-y-6">
+        {ownedBoards.length > 0 && (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {ownedBoards.map((board) => (
+              <DashboardBoardCard key={board.id} board={board} isOwnedByCurrentUser />
+            ))}
+          </div>
+        )}
+
+        {sharedBoards.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold text-gray-700">Shared with me</h2>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {sharedBoards.map((board) => (
+                <DashboardBoardCard
+                  key={board.id}
+                  board={board}
+                  isOwnedByCurrentUser={false}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (boards.length === 0) {
+    return (
+      <EmptySection
+        testId={`dashboard-empty-${activeSection}`}
+        title={sectionMeta.emptyStateTitle}
+        description={sectionMeta.emptyStateDescription}
+      />
+    );
+  }
+
+  return (
+    <section data-testid={`dashboard-section-${activeSection}`} className="space-y-4">
+      <p
+        className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500"
+        data-testid="dashboard-section-scaffold-note"
+      >
+        {sectionMeta.title} is scaffolded for now and currently reuses your full board list.
+      </p>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        {boards.map((board) => (
+          <DashboardBoardCard
+            key={board.id}
+            board={board}
+            isOwnedByCurrentUser={board.created_by === userId}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}

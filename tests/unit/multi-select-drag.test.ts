@@ -121,4 +121,25 @@ describe('multi-select drag utilities', () => {
     const delta = computePrimaryDragDelta(initialPositions, 'primary', { x: 145, y: 170 });
     expect(delta).toBeNull();
   });
+
+  it('builds updates for large selections without dropping entries', () => {
+    const selectedIds: string[] = [];
+    const initialPositions = new Map<string, { x: number; y: number }>();
+
+    for (let i = 0; i < 1000; i++) {
+      const id = `obj-${i}`;
+      selectedIds.push(id);
+      initialPositions.set(id, { x: i * 10, y: i * 5 });
+    }
+
+    const updates = buildMovedPositionUpdates(
+      selectedIds,
+      initialPositions,
+      { x: 25, y: -10 },
+    );
+
+    expect(updates).toHaveLength(1000);
+    expect(updates[0]).toEqual({ id: 'obj-0', x: 25, y: -10 });
+    expect(updates[999]).toEqual({ id: 'obj-999', x: 10015, y: 4985 });
+  });
 });

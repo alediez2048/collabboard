@@ -6,6 +6,14 @@ This directory contains end-to-end tests for the CollabBoard application using P
 
 ## Running Tests
 
+On fresh machines, install the Playwright browser first:
+
+```bash
+npm run test:e2e:setup
+```
+
+`npm run test:e2e` also runs this automatically via a pretest hook, so missing-browser errors are self-healed.
+
 ```bash
 # Run all E2E tests (headless)
 npm run test:e2e

@@ -3,7 +3,7 @@ import { createThrottle } from '@/lib/sync/throttle';
 
 describe('createThrottle', () => {
   it('runs the first call immediately and drops calls within interval', () => {
-    let now = 1000;
+    const now = 1000;
     const calls: number[] = [];
     const throttled = createThrottle(
       (value: number) => {

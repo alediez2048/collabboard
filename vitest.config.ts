@@ -12,7 +12,12 @@ export default defineConfig({
       '**/e2e/**',
       '**/*.spec.ts', // Exclude Playwright specs
     ],
-    include: ['tests/integration/**/*.test.ts', 'tests/unit/**/*.test.ts'],
+    include: [
+      'tests/integration/**/*.test.ts',
+      'tests/integration/**/*.test.tsx',
+      'tests/unit/**/*.test.ts',
+      'tests/unit/**/*.test.tsx',
+    ],
   },
   resolve: {
     alias: {

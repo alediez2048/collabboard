@@ -1,7 +1,10 @@
 'use client';
 
+import { memo } from 'react';
 import { Arrow, Line as KonvaLine } from 'react-konva';
 import { type BoardObject } from '@/lib/yjs/board-doc';
+
+export type ConnectorLinePoints = readonly [number, number, number, number];
 
 interface ConnectorProps {
   id: string;
@@ -9,7 +12,8 @@ interface ConnectorProps {
   toId: string;
   color: string;
   strokeWidth: number;
-  objectLookup: ReadonlyMap<string, BoardObject>;
+  objectLookup?: ReadonlyMap<string, BoardObject>;
+  points?: ConnectorLinePoints | null;
   isSelected: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
 }
@@ -33,24 +37,39 @@ function getCenter(obj: BoardObject): { x: number; y: number } {
   };
 }
 
-export function Connector({
+export function getConnectorLinePoints(
+  fromObject: BoardObject,
+  toObject: BoardObject,
+): ConnectorLinePoints {
+  const { x: x1, y: y1 } = getCenter(fromObject);
+  const { x: x2, y: y2 } = getCenter(toObject);
+  return [x1, y1, x2, y2];
+}
+
+export const Connector = memo(function Connector({
   id,
   fromId,
   toId,
   color,
   strokeWidth,
   objectLookup,
+  points,
   isSelected,
   onSelect,
 }: ConnectorProps): React.ReactElement | null {
-  const fromObj = objectLookup.get(fromId);
-  const toObj = objectLookup.get(toId);
+  let resolvedPoints = points ?? null;
 
-  // If either connected object is missing (e.g. deleted), render nothing
-  if (!fromObj || !toObj) return null;
+  if (!resolvedPoints) {
+    if (!objectLookup) return null;
 
-  const { x: x1, y: y1 } = getCenter(fromObj);
-  const { x: x2, y: y2 } = getCenter(toObj);
+    const fromObj = objectLookup.get(fromId);
+    const toObj = objectLookup.get(toId);
+    if (!fromObj || !toObj) return null;
+
+    resolvedPoints = getConnectorLinePoints(fromObj, toObj);
+  }
+
+  const [x1, y1, x2, y2] = resolvedPoints;
 
   const activeColor = isSelected ? '#2563eb' : color;
 
@@ -83,4 +102,4 @@ export function Connector({
       />
     </>
   );
-}
+});
