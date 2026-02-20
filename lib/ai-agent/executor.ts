@@ -39,6 +39,16 @@ export interface ExecutionResult {
   error?: string;
 }
 
+export interface ExecutionTraceEvent {
+  name: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ExecutionTraceOptions {
+  traceId?: string;
+  onEvent?: (event: ExecutionTraceEvent) => void;
+}
+
 interface BridgeMutateResponse {
   success: boolean;
   affectedObjectIds: string[];
@@ -67,6 +77,19 @@ function getRealtimeServerUrl(): string {
 
 function getBridgeSecret(): string {
   return process.env.AI_BRIDGE_SECRET ?? '';
+}
+
+function buildBridgeHeaders(traceId?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${getBridgeSecret()}`,
+  };
+
+  if (traceId && traceId.trim().length > 0) {
+    headers['X-AI-Trace-Id'] = traceId;
+  }
+
+  return headers;
 }
 
 const MUTATION_TOOLS = new Set([
@@ -105,14 +128,12 @@ async function callBridgeMutate(
   userId: string,
   tool: string,
   args: Record<string, unknown>,
+  traceId?: string,
 ): Promise<BridgeMutateResponse> {
   const url = `${getRealtimeServerUrl()}/ai/mutate`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getBridgeSecret()}`,
-    },
+    headers: buildBridgeHeaders(traceId),
     body: JSON.stringify({ boardId, userId, action: { tool, args } }),
   });
   return res.json() as Promise<BridgeMutateResponse>;
@@ -122,14 +143,12 @@ async function callBridgeMutateBatch(
   boardId: string,
   userId: string,
   actions: Array<{ tool: string; args: Record<string, unknown> }>,
+  traceId?: string,
 ): Promise<BridgeBatchMutateResponse> {
   const url = `${getRealtimeServerUrl()}/ai/mutate-batch`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getBridgeSecret()}`,
-    },
+    headers: buildBridgeHeaders(traceId),
     body: JSON.stringify({ boardId, userId, actions }),
   });
   return res.json() as Promise<BridgeBatchMutateResponse>;
@@ -137,17 +156,23 @@ async function callBridgeMutateBatch(
 
 async function callBridgeBoardState(
   boardId: string,
+  traceId?: string,
 ): Promise<BridgeStateResponse> {
   const url = `${getRealtimeServerUrl()}/ai/board-state`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getBridgeSecret()}`,
-    },
+    headers: buildBridgeHeaders(traceId),
     body: JSON.stringify({ boardId }),
   });
   return res.json() as Promise<BridgeStateResponse>;
+}
+
+function emitTraceEvent(
+  traceOptions: ExecutionTraceOptions | undefined,
+  name: string,
+  metadata: Record<string, unknown>,
+): void {
+  traceOptions?.onEvent?.({ name, metadata });
 }
 
 /**
@@ -160,6 +185,7 @@ export async function executeToolCalls(
   toolCalls: ToolCallInput[],
   boardId: string,
   userId: string,
+  traceOptions?: ExecutionTraceOptions,
 ): Promise<ExecutionResult> {
   const actions: ActionRecord[] = [];
   const objectsAffected: string[] = [];
@@ -169,11 +195,22 @@ export async function executeToolCalls(
     const call = toolCalls[index];
     const toolName = call.function.name;
 
+    emitTraceEvent(traceOptions, 'executor-tool-start', {
+      toolName,
+      index,
+      traceId: traceOptions?.traceId ?? null,
+    });
+
     // Parse args
     let args: Record<string, unknown>;
     try {
       args = JSON.parse(call.function.arguments) as Record<string, unknown>;
     } catch {
+      emitTraceEvent(traceOptions, 'executor-tool-failure', {
+        toolName,
+        index,
+        reason: 'arg-parse-failure',
+      });
       return {
         success: false,
         actions,
@@ -190,6 +227,12 @@ export async function executeToolCalls(
     // Validate args before hitting the bridge
     const validation = validateArgs(toolName, args);
     if (!validation.valid) {
+      emitTraceEvent(traceOptions, 'executor-tool-failure', {
+        toolName,
+        index,
+        reason: 'validation-failure',
+        error: validation.error ?? `Invalid args for ${toolName}`,
+      });
       return {
         success: false,
         actions,
@@ -202,15 +245,27 @@ export async function executeToolCalls(
     // getBoardState is read-only — uses board-state bridge endpoint
     if (toolName === 'getBoardState') {
       try {
-        const state = await callBridgeBoardState(boardId);
+        const state = await callBridgeBoardState(boardId, traceOptions?.traceId);
         actions.push({ tool: toolName, args, result: `Returned ${state.returnedCount} of ${state.totalObjects} objects` });
         toolOutputs.push({
           toolCallId: call.id,
           tool: toolName,
           output: state,
         });
+        emitTraceEvent(traceOptions, 'executor-tool-success', {
+          toolName,
+          index,
+          returnedCount: state.returnedCount,
+          totalObjects: state.totalObjects,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Bridge request failed';
+        emitTraceEvent(traceOptions, 'executor-tool-failure', {
+          toolName,
+          index,
+          reason: 'bridge-state-failure',
+          error: message,
+        });
         return { success: false, actions, objectsAffected, toolOutputs, error: message };
       }
       continue;
@@ -218,6 +273,11 @@ export async function executeToolCalls(
 
     // Mutation tools
     if (!MUTATION_TOOLS.has(toolName)) {
+      emitTraceEvent(traceOptions, 'executor-tool-failure', {
+        toolName,
+        index,
+        reason: 'unknown-tool',
+      });
       return { success: false, actions, objectsAffected, toolOutputs, error: `Unknown tool: ${toolName}` };
     }
 
@@ -260,11 +320,16 @@ export async function executeToolCalls(
 
     if (mutationBatch.length >= BULK_MUTATION_BATCH_THRESHOLD) {
       let shouldFallbackToSequential = false;
+      emitTraceEvent(traceOptions, 'executor-batch-attempt', {
+        batchSize: mutationBatch.length,
+        startIndex: index,
+      });
       try {
         const batchResponse = await callBridgeMutateBatch(
           boardId,
           userId,
           mutationBatch.map((item) => ({ tool: item.toolName, args: item.args })),
+          traceOptions?.traceId,
         );
 
         const batchResults = Array.isArray(batchResponse.results) ? batchResponse.results : [];
@@ -288,6 +353,12 @@ export async function executeToolCalls(
         }
 
         if (!batchResponse.success) {
+          emitTraceEvent(traceOptions, 'executor-tool-failure', {
+            toolName: 'mutate-batch',
+            index,
+            reason: 'batch-failure',
+            error: batchResponse.error ?? 'Bridge batch error',
+          });
           return {
             success: false,
             actions,
@@ -298,6 +369,11 @@ export async function executeToolCalls(
         }
 
         if (batchResults.length !== mutationBatch.length) {
+          emitTraceEvent(traceOptions, 'executor-tool-failure', {
+            toolName: 'mutate-batch',
+            index,
+            reason: 'batch-shape-mismatch',
+          });
           return {
             success: false,
             actions,
@@ -307,6 +383,10 @@ export async function executeToolCalls(
           };
         }
 
+        emitTraceEvent(traceOptions, 'executor-batch-success', {
+          batchSize: mutationBatch.length,
+          appliedCount,
+        });
         index += mutationBatch.length - 1;
         continue;
       } catch {
@@ -314,6 +394,10 @@ export async function executeToolCalls(
       }
 
       if (shouldFallbackToSequential) {
+        emitTraceEvent(traceOptions, 'executor-batch-fallback', {
+          batchSize: mutationBatch.length,
+          reason: 'batch-exception',
+        });
         for (const batchCall of mutationBatch) {
           try {
             const bridgeResult = await callBridgeMutate(
@@ -321,8 +405,15 @@ export async function executeToolCalls(
               userId,
               batchCall.toolName,
               batchCall.args,
+              traceOptions?.traceId,
             );
             if (!bridgeResult.success) {
+              emitTraceEvent(traceOptions, 'executor-tool-failure', {
+                toolName: batchCall.toolName,
+                index,
+                reason: 'bridge-mutation-failure',
+                error: bridgeResult.error ?? `Bridge error on tool ${batchCall.toolName}`,
+              });
               return {
                 success: false,
                 actions,
@@ -342,8 +433,21 @@ export async function executeToolCalls(
               tool: batchCall.toolName,
               output: bridgeResult,
             });
+            emitTraceEvent(traceOptions, 'executor-tool-success', {
+              toolName: batchCall.toolName,
+              index,
+              affectedCount: bridgeResult.affectedObjectIds.length,
+              viaFallback: true,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : 'Bridge request failed';
+            emitTraceEvent(traceOptions, 'executor-tool-failure', {
+              toolName: batchCall.toolName,
+              index,
+              reason: 'bridge-request-failure',
+              error: message,
+              viaFallback: true,
+            });
             return { success: false, actions, objectsAffected, toolOutputs, error: message };
           }
         }
@@ -354,8 +458,14 @@ export async function executeToolCalls(
     }
 
     try {
-      const bridgeResult = await callBridgeMutate(boardId, userId, toolName, args);
+      const bridgeResult = await callBridgeMutate(boardId, userId, toolName, args, traceOptions?.traceId);
       if (!bridgeResult.success) {
+        emitTraceEvent(traceOptions, 'executor-tool-failure', {
+          toolName,
+          index,
+          reason: 'bridge-mutation-failure',
+          error: bridgeResult.error ?? `Bridge error on tool ${toolName}`,
+        });
         return {
           success: false,
           actions,
@@ -371,11 +481,27 @@ export async function executeToolCalls(
         tool: toolName,
         output: bridgeResult,
       });
+      emitTraceEvent(traceOptions, 'executor-tool-success', {
+        toolName,
+        index,
+        affectedCount: bridgeResult.affectedObjectIds.length,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Bridge request failed';
+      emitTraceEvent(traceOptions, 'executor-tool-failure', {
+        toolName,
+        index,
+        reason: 'bridge-request-failure',
+        error: message,
+      });
       return { success: false, actions, objectsAffected, toolOutputs, error: message };
     }
   }
+
+  emitTraceEvent(traceOptions, 'executor-complete', {
+    actionCount: actions.length,
+    objectsAffectedCount: objectsAffected.length,
+  });
 
   return { success: true, actions, objectsAffected, toolOutputs };
 }

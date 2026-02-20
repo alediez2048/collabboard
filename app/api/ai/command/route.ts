@@ -3,11 +3,19 @@ import OpenAI from 'openai';
 import { createClient } from '@/lib/supabase/server';
 import { AI_TOOLS } from '@/lib/ai-agent/tools';
 import { executeToolCalls } from '@/lib/ai-agent/executor';
-import { createTracedCompletion } from '@/lib/ai-agent/tracing';
+import {
+  createTracedCompletion,
+  finishCommandTrace,
+  recordCommandTraceEvent,
+  setCommandTraceExecutionPath,
+  startCommandTrace,
+} from '@/lib/ai-agent/tracing';
 import { planComplexCommand } from '@/lib/ai-agent/planner';
 import type { ToolCallInput } from '@/lib/ai-agent/executor';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
+import type { CommandTraceContext } from '@/lib/ai-agent/tracing';
+import type { ExecutionTraceEvent, ExecutionTraceOptions } from '@/lib/ai-agent/executor';
 
 const SYSTEM_PROMPT = `You are an AI assistant that controls a collaborative whiteboard called CollabBoard.
 
@@ -61,6 +69,40 @@ function toToolCallInputs(
  * and returns a structured response.
  */
 export async function POST(request: NextRequest): Promise<NextResponse<AICommandResponse>> {
+  let traceContext: CommandTraceContext | null = null;
+
+  const emitTraceEvent = (event: ExecutionTraceEvent): void => {
+    if (!traceContext) return;
+    void recordCommandTraceEvent(traceContext, event.name, event.metadata);
+  };
+
+  const getExecutionTraceOptions = (): ExecutionTraceOptions | undefined => {
+    if (!traceContext) return undefined;
+    return {
+      traceId: traceContext.traceId,
+      onEvent: emitTraceEvent,
+    };
+  };
+
+  const respond = (
+    payload: AICommandResponse,
+    init?: { status: number },
+  ): NextResponse<AICommandResponse> => {
+    if (traceContext) {
+      void finishCommandTrace(traceContext, {
+        success: payload.success,
+        ...(payload.error ? { error: payload.error } : {}),
+        metadata: {
+          statusCode: init?.status ?? 200,
+          actionsCount: payload.actions.length,
+          objectsAffectedCount: payload.objectsAffected.length,
+        },
+      });
+    }
+
+    return NextResponse.json(payload, init);
+  };
+
   try {
     // Auth check — mirror pattern from /api/boards/[id]/join
     const supabase = await createClient();
@@ -103,10 +145,29 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     const trimmedBoardId = boardId.trim();
     const trimmedCommand = command.trim();
 
+    traceContext = startCommandTrace({
+      traceName: 'ai-board-command',
+      boardId: trimmedBoardId,
+      userId: user.id,
+      command: trimmedCommand,
+    });
+    void recordCommandTraceEvent(traceContext, 'route-start', {
+      boardId: trimmedBoardId,
+      userId: user.id,
+      commandLength: trimmedCommand.length,
+    });
+
     // Deterministic planner path for complex/template commands.
     // This keeps execution sequential and predictable for multi-step setup/layout requests.
     const initialPlan = planComplexCommand(trimmedCommand);
     if (initialPlan) {
+      setCommandTraceExecutionPath(traceContext, 'deterministic-planner');
+      void recordCommandTraceEvent(traceContext, 'route-decision', {
+        path: 'deterministic-planner',
+        requiresBoardState: initialPlan.requiresBoardState,
+        plannedStepCount: initialPlan.steps.length,
+      });
+
       let plannedActions: Array<{ tool: string; args: Record<string, unknown>; result: string }> = [];
       let plannedObjectsAffected: string[] = [];
       let resolvedPlan = initialPlan;
@@ -122,10 +183,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
           ],
           trimmedBoardId,
           user.id,
+          getExecutionTraceOptions(),
         );
 
         if (!boardStateRead.success) {
-          return NextResponse.json({
+          return respond({
             success: false,
             actions: boardStateRead.actions,
             objectsAffected: boardStateRead.objectsAffected,
@@ -138,10 +200,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
 
         const latestState = boardStateRead.toolOutputs.at(-1)?.output as ScopedBoardState | undefined;
         resolvedPlan = planComplexCommand(trimmedCommand, latestState) ?? { requiresBoardState: false, steps: [] };
+        void recordCommandTraceEvent(traceContext, 'planner-board-state-resolved', {
+          totalObjects: latestState?.totalObjects ?? 0,
+          returnedCount: latestState?.returnedCount ?? 0,
+          resolvedStepCount: resolvedPlan.steps.length,
+        });
       }
 
       if (resolvedPlan.steps.length === 0) {
-        return NextResponse.json({
+        return respond({
           success: true,
           actions: plannedActions,
           objectsAffected: plannedObjectsAffected,
@@ -157,7 +224,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
         },
       }));
 
-      let planExecution = await executeToolCalls(plannedToolCalls, trimmedBoardId, user.id);
+      let planExecution = await executeToolCalls(plannedToolCalls, trimmedBoardId, user.id, getExecutionTraceOptions());
 
       // Consistency guard: deterministic bulk sticky plans should produce the
       // exact requested count. If the bridge returns fewer successful creates,
@@ -169,6 +236,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       if (planExecution.success && isDeterministicBulkStickyPlan) {
         const expectedCreates = resolvedPlan.steps.length;
         const createdSoFar = planExecution.actions.filter((action) => action.tool === 'createStickyNote').length;
+        void recordCommandTraceEvent(traceContext, 'planner-bulk-consistency-check', {
+          expectedCreates,
+          createdSoFar,
+        });
 
         if (createdSoFar < expectedCreates) {
           const remainingSteps = resolvedPlan.steps.slice(createdSoFar);
@@ -181,7 +252,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
             },
           }));
 
-          const topUpExecution = await executeToolCalls(topUpToolCalls, trimmedBoardId, user.id);
+          const topUpExecution = await executeToolCalls(
+            topUpToolCalls,
+            trimmedBoardId,
+            user.id,
+            getExecutionTraceOptions(),
+          );
           planExecution = {
             success: planExecution.success && topUpExecution.success,
             actions: [...planExecution.actions, ...topUpExecution.actions],
@@ -189,10 +265,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
             toolOutputs: [...planExecution.toolOutputs, ...topUpExecution.toolOutputs],
             ...(topUpExecution.error ? { error: topUpExecution.error } : {}),
           };
+          void recordCommandTraceEvent(traceContext, 'planner-bulk-topup', {
+            requestedTopUpCount: topUpToolCalls.length,
+            topUpSuccess: topUpExecution.success,
+          });
         }
       }
 
-      return NextResponse.json({
+      return respond({
         success: planExecution.success,
         actions: [...plannedActions, ...planExecution.actions],
         objectsAffected: [...plannedObjectsAffected, ...planExecution.objectsAffected],
@@ -202,6 +282,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
 
     // Call OpenAI with tool-calling (traced via tracing adapter from 1.3 reference pattern)
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    setCommandTraceExecutionPath(traceContext, 'llm-single-step');
+    void recordCommandTraceEvent(traceContext, 'route-decision', {
+      path: 'llm-single-step',
+    });
 
     const baseMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -216,7 +300,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
         tools: AI_TOOLS,
         tool_choice: 'auto',
       },
-      'ai-board-command',
+      {
+        traceName: 'ai-board-command',
+        context: traceContext,
+        metadata: { routePhase: 'single-step' },
+      },
     );
 
     const responseMessage = completion.choices[0]?.message;
@@ -226,14 +314,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
 
     // No tool calls — model declined to act (command not board-related)
     if (firstToolCalls.length === 0) {
-      return NextResponse.json({
+      void recordCommandTraceEvent(traceContext, 'route-no-tool-calls', {
+        stage: 'first-pass',
+      });
+      return respond({
         success: true,
         actions: [],
         objectsAffected: [],
       });
     }
 
-    const executionResult = await executeToolCalls(firstToolCalls, trimmedBoardId, user.id);
+    const executionResult = await executeToolCalls(
+      firstToolCalls,
+      trimmedBoardId,
+      user.id,
+      getExecutionTraceOptions(),
+    );
 
     // If the first pass only retrieved board state, run one follow-up completion
     // with scoped board context so the model can emit mutation tool calls.
@@ -244,7 +340,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       executionResult.toolOutputs.every((output) => output.tool === 'getBoardState');
 
     if (!hadOnlyReadStatePass) {
-      return NextResponse.json({
+      return respond({
         success: executionResult.success,
         actions: executionResult.actions,
         objectsAffected: executionResult.objectsAffected,
@@ -253,6 +349,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     }
 
     const latestBoardState = executionResult.toolOutputs.at(-1)?.output;
+    setCommandTraceExecutionPath(traceContext, 'llm-followup');
+    void recordCommandTraceEvent(traceContext, 'route-followup-triggered', {
+      toolOutputs: executionResult.toolOutputs.length,
+    });
     const followupMessages: ChatCompletionMessageParam[] = [
       ...baseMessages,
       {
@@ -271,7 +371,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
         tools: AI_TOOLS,
         tool_choice: 'auto',
       },
-      'ai-board-command-followup',
+      {
+        traceName: 'ai-board-command-followup',
+        context: traceContext,
+        metadata: { routePhase: 'followup' },
+      },
     );
 
     const secondResponseMessage = secondCompletion.choices[0]?.message;
@@ -280,19 +384,27 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     );
 
     if (secondToolCalls.length === 0) {
-      return NextResponse.json({
+      void recordCommandTraceEvent(traceContext, 'route-no-tool-calls', {
+        stage: 'followup-pass',
+      });
+      return respond({
         success: executionResult.success,
         actions: executionResult.actions,
         objectsAffected: executionResult.objectsAffected,
       });
     }
 
-    const secondExecution = await executeToolCalls(secondToolCalls, trimmedBoardId, user.id);
+    const secondExecution = await executeToolCalls(
+      secondToolCalls,
+      trimmedBoardId,
+      user.id,
+      getExecutionTraceOptions(),
+    );
     const combinedSuccess = executionResult.success && secondExecution.success;
     const combinedActions = [...executionResult.actions, ...secondExecution.actions];
     const combinedObjectsAffected = [...executionResult.objectsAffected, ...secondExecution.objectsAffected];
 
-    return NextResponse.json({
+    return respond({
       success: combinedSuccess,
       actions: combinedActions,
       objectsAffected: combinedObjectsAffected,
@@ -300,6 +412,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     });
   } catch (err) {
     console.error('[AI Command] Unexpected error:', err);
+    if (traceContext) {
+      void finishCommandTrace(traceContext, {
+        success: false,
+        error: err instanceof Error ? err.message : 'Internal server error',
+        metadata: { statusCode: 500, unexpected: true },
+      });
+    }
     return NextResponse.json(
       { success: false, actions: [], objectsAffected: [], error: 'Internal server error' },
       { status: 500 },

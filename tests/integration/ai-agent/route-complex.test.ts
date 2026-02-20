@@ -11,6 +11,10 @@ vi.mock('@/lib/ai-agent/executor', () => ({
 
 vi.mock('@/lib/ai-agent/tracing', () => ({
   createTracedCompletion: vi.fn(),
+  startCommandTrace: vi.fn(),
+  setCommandTraceExecutionPath: vi.fn(),
+  recordCommandTraceEvent: vi.fn(),
+  finishCommandTrace: vi.fn(),
 }));
 
 vi.mock('openai', () => {
@@ -22,12 +26,31 @@ vi.mock('openai', () => {
 
 import { createClient } from '@/lib/supabase/server';
 import { executeToolCalls } from '@/lib/ai-agent/executor';
-import { createTracedCompletion } from '@/lib/ai-agent/tracing';
+import {
+  createTracedCompletion,
+  startCommandTrace,
+  setCommandTraceExecutionPath,
+  finishCommandTrace,
+} from '@/lib/ai-agent/tracing';
 import { POST } from '@/app/api/ai/command/route';
 
 const mockCreateClient = vi.mocked(createClient);
 const mockExecute = vi.mocked(executeToolCalls);
 const mockTracing = vi.mocked(createTracedCompletion);
+const mockStartTrace = vi.mocked(startCommandTrace);
+const mockSetTracePath = vi.mocked(setCommandTraceExecutionPath);
+const mockFinishTrace = vi.mocked(finishCommandTrace);
+
+const mockTraceContext = {
+  traceId: 'trace-complex-1',
+  traceName: 'ai-board-command',
+  boardId: 'board-1',
+  userId: 'user-123',
+  command: 'Create a SWOT analysis',
+  startedAtMs: 0,
+  executionPath: 'unknown',
+  events: [],
+};
 
 function makeAuthenticatedSupabase() {
   return {
@@ -53,6 +76,8 @@ describe('POST /api/ai/command complex planning', () => {
     vi.clearAllMocks();
     process.env.OPENAI_API_KEY = 'test-key';
     mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    mockStartTrace.mockReturnValue(mockTraceContext as never);
+    mockFinishTrace.mockResolvedValue(undefined);
   });
 
   it('gets board state first for SWOT template, then runs planned steps without OpenAI call', async () => {
@@ -100,6 +125,11 @@ describe('POST /api/ai/command complex planning', () => {
     const firstCallArgs = mockExecute.mock.calls[0]?.[0] ?? [];
     expect(firstCallArgs[0]?.function?.name).toBe('getBoardState');
     expect(mockTracing).not.toHaveBeenCalled();
+    expect(mockSetTracePath).toHaveBeenCalledWith(mockTraceContext, 'deterministic-planner');
+    expect(mockFinishTrace).toHaveBeenCalledWith(
+      mockTraceContext,
+      expect.objectContaining({ success: true }),
+    );
   });
 
   it('uses getBoardState first for layout command, then executes layout mutation steps', async () => {
@@ -187,6 +217,7 @@ describe('POST /api/ai/command complex planning', () => {
     expect(plannedCalls).toHaveLength(100);
     expect(plannedCalls.every((call: { function?: { name?: string } }) => call.function?.name === 'createStickyNote')).toBe(true);
     expect(mockTracing).not.toHaveBeenCalled();
+    expect(mockSetTracePath).toHaveBeenCalledWith(mockTraceContext, 'deterministic-planner');
   });
 
   it('routes 1000-note command through deterministic planner path with exact count', async () => {

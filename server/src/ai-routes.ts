@@ -70,6 +70,15 @@ function verifyBridgeSecret(req: Request, res: Response): boolean {
   return true;
 }
 
+function getTraceId(req: Request): string {
+  const header = req.header('x-ai-trace-id');
+  return typeof header === 'string' ? header.trim() : '';
+}
+
+function withTracePrefix(traceId: string): string {
+  return traceId.length > 0 ? `[trace:${traceId}] ` : '';
+}
+
 // ── Helper: get or load a Yjs doc ─────────────────────────────────────────────
 
 async function getOrLoadDoc(boardId: string): Promise<Y.Doc | null> {
@@ -271,6 +280,7 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
   if (!verifyBridgeSecret(req, res)) return;
 
   const { boardId, userId, action } = req.body as MutateRequest;
+  const traceId = getTraceId(req);
 
   if (!boardId || !userId || !action?.tool) {
     res.status(400).json({ success: false, error: 'boardId, userId, and action.tool are required' });
@@ -292,10 +302,10 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    console.log(`[AI Bridge] ${action.tool} on board ${boardId} → ${result.affectedObjectIds.join(', ')}`);
+    console.log(`[AI Bridge] ${withTracePrefix(traceId)}${action.tool} on board ${boardId} → ${result.affectedObjectIds.join(', ')}`);
     res.json({ success: true, affectedObjectIds: result.affectedObjectIds });
   } catch (err) {
-    console.error('[AI Bridge] Mutate error:', err);
+    console.error(`[AI Bridge] ${withTracePrefix(traceId)}Mutate error:`, err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -309,6 +319,7 @@ router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> 
   if (!verifyBridgeSecret(req, res)) return;
 
   const { boardId, userId, actions } = req.body as MutateBatchRequest;
+  const traceId = getTraceId(req);
 
   if (!boardId || !userId || !Array.isArray(actions) || actions.length === 0) {
     res.status(400).json({ success: false, error: 'boardId, userId, and non-empty actions[] are required' });
@@ -361,7 +372,7 @@ router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> 
       affectedObjectIds,
     });
   } catch (err) {
-    console.error('[AI Bridge] Mutate batch error:', err);
+    console.error(`[AI Bridge] ${withTracePrefix(traceId)}Mutate batch error:`, err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -374,6 +385,7 @@ router.post('/board-state', async (req: Request, res: Response): Promise<void> =
   if (!verifyBridgeSecret(req, res)) return;
 
   const { boardId } = req.body as BoardStateRequest;
+  const traceId = getTraceId(req);
 
   if (!boardId) {
     res.status(400).json({ success: false, error: 'boardId is required' });
@@ -397,7 +409,7 @@ router.post('/board-state', async (req: Request, res: Response): Promise<void> =
       objects: scoped,
     });
   } catch (err) {
-    console.error('[AI Bridge] Board state error:', err);
+    console.error(`[AI Bridge] ${withTracePrefix(traceId)}Board state error:`, err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });

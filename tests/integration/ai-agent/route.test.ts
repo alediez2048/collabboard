@@ -12,6 +12,10 @@ vi.mock('@/lib/ai-agent/executor', () => ({
 
 vi.mock('@/lib/ai-agent/tracing', () => ({
   createTracedCompletion: vi.fn(),
+  startCommandTrace: vi.fn(),
+  setCommandTraceExecutionPath: vi.fn(),
+  recordCommandTraceEvent: vi.fn(),
+  finishCommandTrace: vi.fn(),
 }));
 
 // Mock OpenAI SDK to prevent "browser-like environment" error in jsdom.
@@ -25,12 +29,33 @@ vi.mock('openai', () => {
 
 import { createClient } from '@/lib/supabase/server';
 import { executeToolCalls } from '@/lib/ai-agent/executor';
-import { createTracedCompletion } from '@/lib/ai-agent/tracing';
+import {
+  createTracedCompletion,
+  startCommandTrace,
+  setCommandTraceExecutionPath,
+  recordCommandTraceEvent,
+  finishCommandTrace,
+} from '@/lib/ai-agent/tracing';
 import { POST } from '@/app/api/ai/command/route';
 
 const mockCreateClient = vi.mocked(createClient);
 const mockExecute = vi.mocked(executeToolCalls);
 const mockTracing = vi.mocked(createTracedCompletion);
+const mockStartTrace = vi.mocked(startCommandTrace);
+const mockSetTracePath = vi.mocked(setCommandTraceExecutionPath);
+const mockRecordTraceEvent = vi.mocked(recordCommandTraceEvent);
+const mockFinishTrace = vi.mocked(finishCommandTrace);
+
+const mockTraceContext = {
+  traceId: 'trace-1',
+  traceName: 'ai-board-command',
+  boardId: 'board-1',
+  userId: 'user-123',
+  command: 'Add a note',
+  startedAtMs: 0,
+  executionPath: 'unknown',
+  events: [],
+};
 
 function makeAuthenticatedSupabase() {
   return {
@@ -88,6 +113,9 @@ describe('POST /api/ai/command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.OPENAI_API_KEY = 'test-key';
+    mockStartTrace.mockReturnValue(mockTraceContext as never);
+    mockRecordTraceEvent.mockResolvedValue(undefined);
+    mockFinishTrace.mockResolvedValue(undefined);
   });
 
   it('returns 401 when user is not authenticated', async () => {
@@ -139,6 +167,12 @@ describe('POST /api/ai/command', () => {
     expect(body).toHaveProperty('actions');
     expect(body).toHaveProperty('objectsAffected');
     expect(Array.isArray(body.objectsAffected)).toBe(true);
+    expect(mockStartTrace).toHaveBeenCalledTimes(1);
+    expect(mockSetTracePath).toHaveBeenCalledWith(mockTraceContext, 'llm-single-step');
+    expect(mockFinishTrace).toHaveBeenCalledWith(
+      mockTraceContext,
+      expect.objectContaining({ success: true }),
+    );
   });
 
   it('returns 200 with success: false when executor fails', async () => {
@@ -160,6 +194,10 @@ describe('POST /api/ai/command', () => {
     expect(response.status).toBe(200);
     expect(body.success).toBe(false);
     expect(body.error).toBeTruthy();
+    expect(mockFinishTrace).toHaveBeenCalledWith(
+      mockTraceContext,
+      expect.objectContaining({ success: false }),
+    );
   });
 
   it('returns 200 with no-op when OpenAI returns no tool calls', async () => {
@@ -175,6 +213,11 @@ describe('POST /api/ai/command', () => {
     expect(response.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.objectsAffected).toHaveLength(0);
+    expect(mockRecordTraceEvent).toHaveBeenCalledWith(
+      mockTraceContext,
+      'route-no-tool-calls',
+      expect.any(Object),
+    );
   });
 
   it('runs a follow-up completion after getBoardState-only first pass', async () => {
@@ -209,5 +252,11 @@ describe('POST /api/ai/command', () => {
     expect(body.objectsAffected).toEqual(['obj-1']);
     expect(mockTracing).toHaveBeenCalledTimes(2);
     expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(mockSetTracePath).toHaveBeenCalledWith(mockTraceContext, 'llm-followup');
+    expect(mockRecordTraceEvent).toHaveBeenCalledWith(
+      mockTraceContext,
+      'route-followup-triggered',
+      expect.any(Object),
+    );
   });
 });

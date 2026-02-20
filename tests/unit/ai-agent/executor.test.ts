@@ -278,4 +278,49 @@ describe('executeToolCalls', () => {
     expect(batchCalls).toHaveLength(1);
     expect(singleMutateCalls).toHaveLength(12);
   });
+
+  it('emits batch attempt and fallback telemetry markers', async () => {
+    const telemetry = vi.fn();
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/ai/mutate-batch')) {
+        return makeBridgeHtmlErrorResponse();
+      }
+      return makeBridgeSuccess([`note-${crypto.randomUUID()}`]);
+    });
+
+    const calls = Array.from({ length: 12 }, (_, index) =>
+      makeToolCall('createStickyNote', {
+        text: `Note ${index + 1}`,
+        x: 100 + (index * 20),
+        y: 100 + (index * 20),
+        color: '#ffeb3b',
+      }),
+    );
+
+    const result = await executeToolCalls(calls, 'board-abc', 'user-1', {
+      onEvent: telemetry,
+      traceId: 'trace-telemetry-1',
+    });
+
+    expect(result.success).toBe(true);
+    const eventNames = telemetry.mock.calls.map((call) => call[0]?.name);
+    expect(eventNames).toContain('executor-batch-attempt');
+    expect(eventNames).toContain('executor-batch-fallback');
+  });
+
+  it('propagates trace id to bridge headers when telemetry options are present', async () => {
+    mockFetch.mockResolvedValueOnce(makeBridgeSuccess(['note-1']));
+
+    const result = await executeToolCalls(
+      [makeToolCall('createStickyNote', { text: 'Traced', x: 100, y: 200, color: '#ffeb3b' })],
+      'board-abc',
+      'user-1',
+      { traceId: 'trace-header-1' },
+    );
+
+    expect(result.success).toBe(true);
+    const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit;
+    const headers = requestInit.headers as Record<string, string>;
+    expect(headers['X-AI-Trace-Id']).toBe('trace-header-1');
+  });
 });

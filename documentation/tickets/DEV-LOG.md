@@ -1626,41 +1626,66 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 
 ---
 
-## TICKET-13.5: LLM Observability + Dashboard Readiness (Planned)
+## TICKET-13.5: LLM Observability + Dashboard Readiness (Completed)
 
 ### 🧠 Plain-English Summary
-- **What this is:** A focused observability pass to ensure AI behavior is traceable and explainable in Langfuse/LangSmith.
-- **Why it matters:** Project expectations include not only integration, but also the ability to navigate traces and explain model/tool behavior clearly.
+- **What this ticket delivered:** end-to-end AI command tracing with dual backend fan-out support (Langfuse + LangSmith), including route lifecycle, executor batch/fallback telemetry, and bridge trace correlation IDs.
+- **Why it mattered:** demo/interview readiness depends on quickly explaining what the AI did, why it did it, and where latency/token/cost was spent across success and failure paths.
 
-### 📋 Planned Scope
-- Validate trace ingestion for:
-  - single-step AI commands
-  - follow-up `getBoardState -> mutation` flows
-  - complex planner commands
-  - failure/error paths
-- Ensure dashboard records:
-  - prompt/input
-  - model output
-  - latency
-  - token usage/cost
-  - per-step tool execution (args/results/errors where applicable)
-- Capture trace links/screenshots for demo narrative.
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 20, 2026
+- **Branch:** `main`
 
-### ✅ Planned Acceptance Criteria
-- Traces reliably appear for all major AI command classes.
-- At least one success and one failure trace can be explained end-to-end.
-- DEV-LOG includes evidence links/screenshots and interpretation notes.
+### 🎯 Scope Delivered
+- Refactored tracing core in `lib/ai-agent/tracing.ts`:
+  - command trace context lifecycle (`start` / `event` / `finish`)
+  - dual sink fan-out (Langfuse + LangSmith) with per-sink failure isolation
+  - completion metadata capture (latency, prompt/completion/total tokens, estimated cost)
+- Added route-level observability in `app/api/ai/command/route.ts`:
+  - execution path classification (`deterministic-planner`, `llm-single-step`, `llm-followup`)
+  - lifecycle markers for no-op, follow-up triggers, planner resolution, and bulk top-up checks
+  - non-blocking finalize calls on all major response branches
+- Added executor instrumentation and correlation in `lib/ai-agent/executor.ts`:
+  - telemetry events for tool start/success/failure, batch attempt/success/fallback, completion
+  - trace ID propagation to bridge calls via `X-AI-Trace-Id`
+- Added bridge-side correlation logging in `server/src/ai-routes.ts`.
+- Hardened Langfuse observation writes in `lib/ai-agent/tracing.ts` by preserving SDK method context (no detached calls) so timeline events reliably persist.
+- Added per-sink timeout guards (`TRACE_SINK_TIMEOUT_MS=750`) to keep tracing best-effort and non-blocking.
+- Updated env docs for dual-backend readiness in `.env.example` and `server/.env.example`.
 
-### 🚀 Sequencing
-- Execute after TICKET-13 and TICKET-13.1.
-- Keep scope bounded to observability integration + explanation readiness.
+### ✅ Validation
+- Added failing-first tests, then implemented until green:
+  - `tests/unit/ai-agent/tracing.test.ts` (new)
+  - `tests/unit/ai-agent/executor.test.ts` (expanded)
+  - `tests/integration/ai-agent/route.test.ts` (expanded)
+  - `tests/integration/ai-agent/route-complex.test.ts` (expanded)
+- Full regression run completed:
+  - `npm test` → **195/195 passing**
+  - `npm run build` → passed
+  - `npm run build --prefix server` → passed
+
+### 📊 Manual Dashboard Readiness Notes
+- Phase-0 bootstrap requirements are now explicitly documented and enforced in planning/docs.
+- LangSmith traces validated end-to-end with expected lifecycle visibility (`route-start`, `route-decision`, `llm-completion`, `executor-*`, `route-finish`).
+- Langfuse traces + observations validated after:
+  - correcting env naming/host wiring (`LANGFUSE_HOST`)
+  - preserving Langfuse trace method context when emitting generations/events
+- Note on UX: Langfuse root trace preview can show empty input/output while detailed payloads appear under timeline observations.
+
+### 🧪 Final Evidence Checklist (Dashboard Walkthrough)
+- ✅ **Single-step success trace:** command appears in both LangSmith and Langfuse with route + executor lifecycle markers.
+- ✅ **Follow-up path trace:** includes read-first flow and follow-up mutation behavior (`route-followup-triggered` + second completion path).
+- ✅ **Deterministic/bulk trace clarity:** shows planner/executor flow and batch behavior markers (`executor-batch-attempt`, `executor-batch-success` or fallback).
+- ✅ **Failure-path explainability:** failure traces retain end-state context via `route-finish` + error metadata.
+- ✅ **Latency/tokens/cost context:** surfaced on completion observations for quick analysis and interview narration.
 
 ---
 
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 13/15 core tickets (+ TICKET-13.1 complete, TICKET-13.5 planned)
+- **Tickets Completed:** 14/17 tracked tickets (including TICKET-13.1 and TICKET-13.5)
 - **Build:** ✅ Clean (frontend + server)
 - **Tests:** ✅ Ticket-13 + AI regression suites passing (32/32 in latest validation run)
 - **Lint:** ✅ Zero errors
@@ -1684,11 +1709,11 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 12. ✅ AI Agent: Complex Commands (multi-step planning + template/layout orchestration with collision-safe placement)
 13. ✅ Performance Profiling + Hardening (viewport culling, cursor throughput controls, reconnect/persistence lifecycle hardening)
 14. ✅ Zoom Interaction Hardening (delta-based zoom curve + rAF wheel coalescing + unified viewport writes)
+15. ✅ LLM Observability + Dashboard Readiness (dual tracing fan-out + route/executor/bridge telemetry coverage)
 
 ### 📈 Next Priorities
-1. **TICKET-13.5:** LLM Observability + Dashboard Walkthrough
-2. **TICKET-14:** Documentation + AI Dev Log + Cost Analysis
-3. **TICKET-15:** Final polish + demo readiness
+1. **TICKET-14:** Documentation + AI Dev Log + Cost Analysis
+2. **TICKET-15:** Final polish + demo readiness
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early
