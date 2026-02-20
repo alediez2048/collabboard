@@ -21,10 +21,10 @@
 ## Polish + Docs (Due: Sun 10:59 PM CT)
 
 - [x] **TICKET-13** — Performance Profiling + Hardening (~2 hrs) ✅ Completed Feb 19
-- [ ] **TICKET-13.1** — Zoom Interaction Hardening (~0.75-1 hr)
-- [ ] **TICKET-13.5** — LLM Observability (Langfuse/LangSmith) + Dashboard Walkthrough (~1–1.5 hrs)
+- [x] **TICKET-13.1** — Zoom Interaction Hardening (~0.75-1 hr) ✅ Completed Feb 20
+- [x] **TICKET-13.5** — LLM Observability (Langfuse/LangSmith) + Dashboard Walkthrough (~1–1.5 hrs) ✅ Completed Feb 20
 - [ ] **TICKET-14** — Documentation + AI Dev Log + Cost Analysis (~2 hrs)
-- [ ] **TICKET-15** — Final Polish + Social Post (~1.5 hrs)
+- [ ] **TICKET-15** — Board Management + Final Polish + Social Post (~3 hrs)
 
 ## Notes
 
@@ -40,13 +40,17 @@ _Update this file after completing each ticket. Add a one-line note if you devia
 - 🎯 Focus: performance profiling + hardening (fps/sync latency/object-count resilience + reconnect behavior)
 - ✅ Completed Feb 19, 2026 — viewport culling + batched Yjs observer updates + cursor throughput hardening + per-room persistence debounce hardening + reconnect/recovery stress tests passing
 
-### TICKET-13.1 (Planned Feb 20, 2026)
+### TICKET-13.1 (Completed Feb 20, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-13.1-PRIMER.md`
-- 🎯 Focus: zoom interaction hardening (delta-based zoom curve, smoother wheel/trackpad behavior, pointer-anchor stability)
+- ✅ Focus delivered: zoom interaction hardening (delta-based zoom curve, smoother wheel/trackpad behavior, pointer-anchor stability)
 
-### TICKET-13.5 (Planned Feb 19, 2026)
+### TICKET-13.5 (Completed Feb 20, 2026)
 - 📌 Focus: instrument and validate AI traces in Langfuse/LangSmith, including planner/executor step visibility
-- 🎯 Outcome: confidently navigate dashboards and explain LLM/tool behavior using real traces during demo/interview
+- ✅ Outcome: route/executor lifecycle visibility and trace metadata now validated in both platforms
+
+### TICKET-14 (Kickoff Feb 20, 2026)
+- 📌 Primer created: `documentation/tickets/TICKET-14-PRIMER.md`
+- 🎯 Focus: submission-ready README + AI development log + trace-backed cost analysis + demo linkage
 
 ### TICKET-11 (Completed Feb 18, 2026)
 - ✅ All acceptance criteria met for basic AI command flow

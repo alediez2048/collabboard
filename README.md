@@ -1,178 +1,168 @@
 # CollabBoard
 
-Real-time collaborative whiteboard with AI agent, built with Next.js 15, Konva.js, Yjs, Socket.io, and Supabase.
+Real-time collaborative whiteboard with an AI command layer.  
+Built with Next.js (App Router), Konva, Yjs, Socket.io, Supabase, and OpenAI tooling.
 
-**Live Demo:** https://collabboard-gauntlet.vercel.app
-
----
-
-## Features
-
-- ✅ **Authentication** - Email/password signup and login (Supabase Auth)
-- ✅ **Board Management** - Create, list, and navigate boards
-- ✅ **Real-time Sync** - Multiplayer collaboration via Yjs CRDT
-- 🚧 **Canvas** - Infinite pan/zoom canvas (TICKET-02)
-- 🚧 **Sticky Notes** - Create, edit, move, delete notes (TICKET-04)
-- 🚧 **Multiplayer Cursors** - See other users' cursors in real-time (TICKET-05)
-- 🚧 **AI Agent** - Natural language board manipulation (TICKET-11+)
+- **Live App:** https://collabboard-gauntlet.vercel.app
+- **GitHub:** https://github.com/alediez2048/Gauntlet-Assignment-1
+- **Demo Video:** _Add final URL in TICKET-14 delivery pass_
 
 ---
 
-## Quick Start
+## What Is Implemented
 
-### Prerequisites
+- ✅ Email/password auth (Supabase Auth) and protected board routes
+- ✅ Board creation/list/open flows
+- ✅ Real-time object sync via Yjs CRDT + y-websocket
+- ✅ Multiplayer cursors and presence via Socket.io + Yjs awareness
+- ✅ Sticky notes, shapes, connectors, frames, selection/transforms
+- ✅ Persistence of board state (Yjs snapshots to Supabase)
+- ✅ AI board commands (single-step + follow-up + deterministic complex planning)
+- ✅ Tracing/observability for AI flows (LangSmith + Langfuse fan-out support)
 
-- Node.js 24+ (via nvm recommended)
-- npm 11+
-- Supabase account
+---
 
-### Installation
+## Architecture At A Glance
+
+1. **Board objects (persistent):** Yjs shared doc (`Y.Map`) is source of truth.
+2. **Cursors/presence (ephemeral):** Socket.io broadcast + awareness updates.
+3. **Persistence:** Server snapshots Yjs updates to Supabase on debounce.
+4. **AI writes:** `/api/ai/command` executes tools and mutates through the same Yjs sync path.
+
+For detailed contracts, see:
+- `documentation/architecture/system-design.md`
+- `documentation/agents/agents.md`
+
+---
+
+## Quick Start (Fresh Clone)
+
+### 1) Clone + install frontend deps
 
 ```bash
-# Clone the repository
 git clone https://github.com/alediez2048/Gauntlet-Assignment-1.git
 cd Gauntlet-Assignment-1
-
-# Install dependencies
 npm install
+```
 
-# Copy environment variables
+### 2) Install realtime server deps
+
+```bash
+npm install --prefix server
+```
+
+### 3) Create env files
+
+```bash
 cp .env.example .env.local
+cp server/.env.example server/.env
+```
 
-# Edit .env.local with your Supabase credentials
-# NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+Then fill required values:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `AI_BRIDGE_SECRET` (same value in both `.env.local` and `server/.env`)
 
-# Run development server
+For local full-stack dev defaults:
+- `NEXT_PUBLIC_WS_URL=ws://localhost:4000`
+- `REALTIME_SERVER_URL=http://localhost:4000`
+- `PORT=4000` (server)
+
+### 4) Run both processes
+
+Terminal 1 (realtime server):
+
+```bash
+npm run dev --prefix server
+```
+
+Terminal 2 (Next.js app):
+
+```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the app.
+Open `http://localhost:3000`.
 
 ---
 
-## Available Commands
+## Commands
+
+### Frontend (repo root)
 
 ```bash
-# Development
-npm run dev              # Start Next.js dev server
-npm run build            # Build for production
-npm start                # Start production server
+npm run dev
+npm run build
+npm start
+npm run lint
+npm test
+npm run test:e2e
+npm run test:e2e:ui
+npm run test:e2e:headed
+npm run test:e2e:debug
+```
 
-# Testing
-npm run test:e2e         # Run E2E tests (Playwright)
-npm run test:e2e:ui      # Interactive E2E test mode
-npm run test:e2e:headed  # Watch browser during E2E tests
-npm test                 # Run unit/integration tests (Vitest)
+### Realtime server (`server/`)
 
-# Code Quality
-npm run lint             # Run ESLint
-npm run lint -- --fix    # Auto-fix linting issues
+```bash
+npm run dev --prefix server
+npm run build --prefix server
+npm start --prefix server
 ```
 
 ---
 
-## Project Structure
+## Documentation Map
 
-```
-├── app/                 # Next.js 15 App Router
-│   ├── api/            # API routes (future)
-│   ├── board/[id]/     # Board page (canvas)
-│   ├── login/          # Authentication page
-│   └── page.tsx        # Home (board list)
-├── components/          # React components
-│   ├── ui/             # Reusable UI components
-│   └── board/          # Board-specific components
-├── lib/                 # Shared logic
-│   ├── supabase/       # Supabase client utilities
-│   └── yjs/            # Yjs/CRDT setup (future)
-├── stores/              # Zustand state management
-├── tests/
-│   └── e2e/            # Playwright E2E tests
-├── types/               # TypeScript type definitions
-└── public/              # Static assets
-```
+- `documentation/requirements/PRD.md` - ticket scope and acceptance criteria
+- `documentation/architecture/system-design.md` - state ownership and sync contracts
+- `documentation/testing/TESTS.md` - test strategy and checklists
+- `documentation/tickets/DEV-LOG.md` - implementation history and validation evidence
+- `documentation/reference/AI-DEVELOPMENT-LOG.md` - AI workflow, prompts, learnings
+- `documentation/reference/AI-COST-ANALYSIS.md` - trace-backed usage and projections
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 15 (App Router), React 19, TypeScript |
-| **Canvas** | Konva.js + react-konva |
-| **Styling** | Tailwind CSS v4 |
-| **Real-time** | Yjs (CRDT) + y-websocket, Socket.io |
-| **Auth** | Supabase Auth (JWT sessions) |
-| **Database** | Supabase PostgreSQL |
-| **State** | Zustand (UI only), Yjs (board objects) |
-| **Testing** | Playwright (E2E), Vitest (unit/integration) |
-| **Deployment** | Vercel (frontend), Railway (WebSocket server - future) |
-| **AI** | OpenAI GPT-4o-mini (future) |
+|---|---|
+| Frontend | Next.js, React, TypeScript |
+| Canvas | Konva + react-konva |
+| Realtime (persistent) | Yjs + y-websocket |
+| Realtime (ephemeral) | Socket.io |
+| Auth + Database | Supabase |
+| Local UI state | Zustand |
+| AI | OpenAI function calling + typed tool schema |
+| AI Observability | LangSmith + Langfuse |
+| Testing | Vitest + Playwright |
+| Deployment | Vercel (frontend) + Railway (realtime server) + Supabase |
 
 ---
 
-## Documentation
+## Project Structure
 
-All project docs live in **`documentation/`** by category:
-
-| Category | Contents |
-|----------|----------|
-| **[documentation/architecture/](documentation/architecture/)** | [system-design.md](documentation/architecture/system-design.md) — data flow, state ownership, event schema |
-| **[documentation/requirements/](documentation/requirements/)** | [PRD.md](documentation/requirements/PRD.md) — product requirements and ticket breakdown |
-| **[documentation/testing/](documentation/testing/)** | [TESTS.md](documentation/testing/TESTS.md) — testing guide and strategy |
-| **[documentation/agents/](documentation/agents/)** | [agents.md](documentation/agents/agents.md) — coding agent guidelines · [CLAUDE.md](documentation/agents/CLAUDE.md) — quick reference for AI agents |
-| **[documentation/reference/](documentation/reference/)** | [presearch.md](documentation/reference/presearch.md) — file structure and architecture reference |
-| **[documentation/tickets/](documentation/tickets/)** | [TICKETS.md](documentation/tickets/TICKETS.md) — progress tracker · [DEV-LOG.md](documentation/tickets/DEV-LOG.md) — development log · ticket primers (TICKET-02 through TICKET-04) |
-
----
-
-## Testing
-
-This project follows a comprehensive testing strategy:
-
-- **E2E Tests** (Playwright) - User flows, multiplayer sync
-- **Integration Tests** (Vitest) - Server logic, Yjs sync
-- **Unit Tests** (Vitest) - Component logic, utilities
-- **Manual Testing** - UX validation, performance
-
-See **[documentation/testing/TESTS.md](documentation/testing/TESTS.md)** for detailed testing documentation including:
-- Per-ticket testing checklists
-- Multi-browser testing setup
-- Debugging guides
-- CI/CD integration plans
+```text
+app/                     Next.js routes and API handlers
+components/board/        Canvas + board UI components
+lib/ai-agent/            Planner/executor/tooling/tracing logic
+lib/sync/                Socket.io cursor transport + throttling helpers
+lib/yjs/                 Yjs provider/bootstrap logic
+server/                  Socket.io + y-websocket realtime server
+stores/                  Local UI-only Zustand store
+tests/                   Unit, integration, and E2E suites
+documentation/           PRD, architecture, testing, tickets, reference docs
+```
 
 ---
 
-## Development Workflow
+## Notes For Final Submission
 
-1. **Read ticket** in [documentation/requirements/PRD.md](documentation/requirements/PRD.md)
-2. **Create feature branch** (e.g., `feat/canvas`)
-3. **Implement feature** following TDD principles
-4. **Run tests** (lint, build, E2E, manual)
-5. **Update documentation** ([documentation/tickets/DEV-LOG.md](documentation/tickets/DEV-LOG.md), [documentation/tickets/TICKETS.md](documentation/tickets/TICKETS.md))
-6. **Commit and push** with conventional commits
-7. **Deploy** via Vercel (auto-deploy from `main`)
-
----
-
-## Contributing
-
-This is a submission for the Gauntlet AI assignment. Not accepting external contributions at this time.
-
----
-
-## License
-
-Private project for Gauntlet AI interview process.
-
----
-
-## Links
-
-- **Live App:** https://collabboard-gauntlet.vercel.app
-- **GitHub:** https://github.com/alediez2048/Gauntlet-Assignment-1
-- **Supabase Dashboard:** https://supabase.com/dashboard/project/ifagtpezakzdztufnyze
+- Add final demo URL in this README and in `documentation/tickets/DEV-LOG.md`.
+- Cost figures are documented in `documentation/reference/AI-COST-ANALYSIS.md` and should be paired with latest dashboard screenshots before submission.
 
 ---
 
