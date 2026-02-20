@@ -9,7 +9,7 @@
  * Canvas children — eliminating the primary source of cursor glitchiness.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layer } from 'react-konva';
 import { Socket } from 'socket.io-client';
 import { onCursorMove, type CursorMoveEvent } from '@/lib/sync/cursor-socket';
@@ -18,6 +18,7 @@ import { RemoteCursor } from './RemoteCursor';
 interface RemoteCursorsLayerProps {
   socket: Socket;
   currentUserId: string;
+  onLatencySample?: (latencyMs: number) => void;
 }
 
 const STALE_CURSOR_MS = 5000; // remove cursor after 5 s of silence
@@ -26,10 +27,18 @@ const STALE_CHECK_INTERVAL_MS = 1000;
 export function RemoteCursorsLayer({
   socket,
   currentUserId,
+  onLatencySample,
 }: RemoteCursorsLayerProps) {
   const [cursors, setCursors] = useState<
     Map<string, CursorMoveEvent & { timestamp: number }>
   >(new Map());
+  const pendingCursorEventsRef = useRef<Map<string, CursorMoveEvent>>(new Map());
+  const frameIdRef = useRef<number | null>(null);
+  const cursorMetricsRef = useRef({
+    receivedInWindow: 0,
+    flushedInWindow: 0,
+    lastLogAt: 0,
+  });
 
   // Keep a ref so the stale-cleanup interval can read the latest map without
   // being recreated every time the map changes.
@@ -38,23 +47,83 @@ export function RemoteCursorsLayer({
 
   // Subscribe to remote cursor events
   useEffect(() => {
+    const flushQueuedCursorEvents = (): void => {
+      frameIdRef.current = null;
+      const queued = pendingCursorEventsRef.current;
+      if (queued.size === 0) return;
+
+      const timestamp = Date.now();
+      setCursors((prev) => {
+        const next = new Map(prev);
+        for (const [userId, cursor] of queued.entries()) {
+          next.set(userId, { ...cursor, timestamp });
+        }
+        return next;
+      });
+      queued.clear();
+
+      if (process.env.NODE_ENV === 'development') {
+        const now = Date.now();
+        const metrics = cursorMetricsRef.current;
+        metrics.flushedInWindow += 1;
+
+        if (metrics.lastLogAt === 0) {
+          metrics.lastLogAt = now;
+          return;
+        }
+
+        const elapsedMs = now - metrics.lastLogAt;
+        if (elapsedMs >= 5000) {
+          console.debug('[RemoteCursors Perf] inbound throughput', {
+            receivedPerSecond: Number(
+              (metrics.receivedInWindow / (elapsedMs / 1000)).toFixed(1),
+            ),
+            flushesPerSecond: Number(
+              (metrics.flushedInWindow / (elapsedMs / 1000)).toFixed(1),
+            ),
+            activeCursors: cursorsRef.current.size,
+          });
+          metrics.receivedInWindow = 0;
+          metrics.flushedInWindow = 0;
+          metrics.lastLogAt = now;
+        }
+      }
+    };
+
+    const scheduleCursorFlush = (): void => {
+      if (frameIdRef.current !== null) return;
+      frameIdRef.current = window.requestAnimationFrame(flushQueuedCursorEvents);
+    };
+
     const handleCursorMove = (data: CursorMoveEvent): void => {
       // Never show own cursor
       if (data.userId === currentUserId) return;
 
-      setCursors((prev) => {
-        const next = new Map(prev);
-        next.set(data.userId, { ...data, timestamp: Date.now() });
-        return next;
-      });
+      if (typeof data.sentAt === 'number') {
+        const latencyMs = Date.now() - data.sentAt;
+        if (latencyMs >= 0 && latencyMs <= 5000) {
+          onLatencySample?.(latencyMs);
+        }
+      }
+
+      pendingCursorEventsRef.current.set(data.userId, data);
+      scheduleCursorFlush();
+
+      if (process.env.NODE_ENV === 'development') {
+        cursorMetricsRef.current.receivedInWindow += 1;
+      }
     };
 
     onCursorMove(socket, handleCursorMove);
 
     return () => {
+      if (frameIdRef.current !== null) {
+        window.cancelAnimationFrame(frameIdRef.current);
+      }
+      pendingCursorEventsRef.current.clear();
       socket.off('cursor:move', handleCursorMove);
     };
-  }, [socket, currentUserId]);
+  }, [socket, currentUserId, onLatencySample]);
 
   // Periodically remove cursors that haven't moved in STALE_CURSOR_MS
   useEffect(() => {
@@ -86,9 +155,11 @@ export function RemoteCursorsLayer({
     return () => clearInterval(interval);
   }, []);
 
+  const renderedCursors = useMemo(() => Array.from(cursors.values()), [cursors]);
+
   return (
     <Layer listening={false}>
-      {Array.from(cursors.values()).map((cursor) => (
+      {renderedCursors.map((cursor) => (
         <RemoteCursor
           key={cursor.userId}
           x={cursor.x}

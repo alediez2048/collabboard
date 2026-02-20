@@ -157,7 +157,41 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
         },
       }));
 
-      const planExecution = await executeToolCalls(plannedToolCalls, trimmedBoardId, user.id);
+      let planExecution = await executeToolCalls(plannedToolCalls, trimmedBoardId, user.id);
+
+      // Consistency guard: deterministic bulk sticky plans should produce the
+      // exact requested count. If the bridge returns fewer successful creates,
+      // run one top-up pass for the remaining planned steps.
+      const isDeterministicBulkStickyPlan =
+        resolvedPlan.steps.length > 0 &&
+        resolvedPlan.steps.every((step) => step.tool === 'createStickyNote');
+
+      if (planExecution.success && isDeterministicBulkStickyPlan) {
+        const expectedCreates = resolvedPlan.steps.length;
+        const createdSoFar = planExecution.actions.filter((action) => action.tool === 'createStickyNote').length;
+
+        if (createdSoFar < expectedCreates) {
+          const remainingSteps = resolvedPlan.steps.slice(createdSoFar);
+          const topUpToolCalls: ToolCallInput[] = remainingSteps.map((step, index) => ({
+            id: `planned-topup-step-${createdSoFar + index + 1}`,
+            type: 'function',
+            function: {
+              name: step.tool,
+              arguments: JSON.stringify(step.args),
+            },
+          }));
+
+          const topUpExecution = await executeToolCalls(topUpToolCalls, trimmedBoardId, user.id);
+          planExecution = {
+            success: planExecution.success && topUpExecution.success,
+            actions: [...planExecution.actions, ...topUpExecution.actions],
+            objectsAffected: [...planExecution.objectsAffected, ...topUpExecution.objectsAffected],
+            toolOutputs: [...planExecution.toolOutputs, ...topUpExecution.toolOutputs],
+            ...(topUpExecution.error ? { error: topUpExecution.error } : {}),
+          };
+        }
+      }
+
       return NextResponse.json({
         success: planExecution.success,
         actions: [...plannedActions, ...planExecution.actions],

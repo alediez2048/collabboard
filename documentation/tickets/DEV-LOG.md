@@ -1511,19 +1511,158 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 | `tests/integration/ai-agent/route-complex.test.ts` | Created |
 | `tests/integration/ai-agent/route.test.ts` | Modified |
 
-### 🚀 Next Steps (TICKET-13)
-- Profile 60fps rendering and sync latency under object load
-- Stress test 500+ objects and 5+ collaborators
-- Validate reconnect/recovery behavior and document hardening actions
+## TICKET-13: Performance Profiling + Hardening (Completed)
+
+### 🧠 Plain-English Summary
+- **What this ticket did:** hardened the heavy realtime paths (rendering, cursor emission, reconnect/persistence lifecycle) so dense boards stay responsive and reconnect behavior is safer under churn.
+- **Why this mattered:** pre-hardening hot paths did unnecessary work under load (rendering all nodes, immediate state fanout, per-connection debounce timers), which increases risk when object counts and client counts rise.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 19, 2026
+- **Branch:** `main`
+
+### 🔍 Baseline Snapshot (Before Hardening)
+- Canvas rendered full object lists without viewport culling.
+- Yjs object observer called `setBoardObjects` on every map event.
+- Cursor emit throttling existed inline in `Canvas` and lacked reusable tests/utils.
+- Persistence debounce controller was created per WebSocket connection (not per room), which could duplicate timers/saves under multi-client rooms.
+
+### 🏗️ Hardening Delivered
+- **Frontend performance (`components/board/Canvas.tsx`, `Grid.tsx`, `RemoteCursorsLayer.tsx`, `Connector.tsx`)**
+  - Added viewport-aware culling with reusable bounds helpers (`lib/utils/viewport-culling.ts`).
+  - Batched Yjs map observer updates to animation frames to reduce render churn.
+  - Introduced layered visible-object precomputation (frames/connectors/shapes/stickies).
+  - Switched connector endpoint resolution to O(1) map lookup (`objectLookup`) instead of repeated array scans.
+  - Memoized grid dot generation and capped dot density under extreme zoom-out.
+  - Batched inbound remote cursor updates to animation frames.
+- **Cursor throughput + maintainability (`lib/sync/throttle.ts`, `Canvas.tsx`)**
+  - Added reusable `createThrottle()` utility with unit tests.
+  - Moved cursor emission to throttled helper path.
+  - Tuned sender throttle to `40ms` (25Hz) to stay within 20–30Hz target.
+  - Added development throughput diagnostics for emitted/inbound cursor event rates.
+- **Reconnect/persistence hardening (`lib/yjs/provider.ts`, `server/src/yjs-server.ts`, `server/src/persistence.ts`)**
+  - Provider now logs reconnect-aware status metadata and cleanly disconnects before destroy.
+  - Server now shares one debounced snapshot controller per room (prevents per-connection timer duplication).
+  - Last-client persistence now flushes debounced work and avoids eviction if clients rejoin during save.
+  - Persistence now includes save retries, serialized in-flight save handling, and timing-aware logs.
+
+### 📈 Validation Metrics
+- **Viewport culling sample:** 500 synthetic objects → 60 rendered / 440 culled in a 1920x1080 viewport (+padding), culling compute time `~0.0416ms`.
+- **Local 500-object sync latency (encode+apply):** `avg 2.38ms` (`min 1.76ms`, `max 5.74ms`) across 30 runs.
+- **Cursor sender ceiling:** 40ms throttle => ~25 emits/sec max (within 20–30Hz target).
+- **Integration latency guardrail:** added test asserting 500-object local snapshot sync stays `<100ms`.
+
+### ✅ Testing & Verification
+- ✅ Added unit tests:
+  - `tests/unit/viewport-culling.test.ts`
+  - `tests/unit/sync/throttle.test.ts`
+- ✅ Expanded integration tests:
+  - `tests/integration/yjs-sync.test.ts` (stress/recovery/latency cases)
+- ✅ Regression suites pass:
+  - `tests/integration/ai-agent/route.test.ts`
+  - `tests/integration/ai-agent/route-complex.test.ts`
+- ✅ Ticket-13 validation run: **32/32 tests passing**
+- ✅ Type checks/build checks:
+  - frontend: `npx tsc --noEmit`
+  - server: `npm run build --prefix server`
+- ✅ Lint diagnostics on changed files: no errors
+
+### ⚠️ Residual Risks / Follow-ups
+- Browser-level FPS and true network latency still need final two-browser manual verification on deployed infra (local synthetic and in-memory benchmarks are healthy but not a full substitute).
+- Ticket-13.5 remains the dedicated observability/dashboard readiness track.
+
+---
+
+## TICKET-13.1: Zoom Interaction Hardening (Completed)
+
+### 🧠 Plain-English Summary
+- **What this ticket did:** replaced fixed-step zoom with delta-driven, pointer-anchored zoom and coalesced wheel handling.
+- **Why this mattered:** fixed-step per-event updates felt jittery during rapid wheel/trackpad gestures and caused extra viewport write churn.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 20, 2026
+- **Branch:** `main`
+
+### 🔍 Before vs After Feel
+- **Before:** each wheel event applied a fixed `1.05x` scale step and wrote `zoom` then `pan` separately.
+- **After:** wheel deltas are normalized and coalesced per animation frame, then applied once through a pointer-anchor transform with a single viewport write (`zoom + pan`).
+
+### ⚙️ Tuning Values Used
+- Zoom clamp: `0.1` to `10`
+- Wheel sensitivity: `0.0005` (exponential zoom curve)
+- Wheel normalization:
+  - line mode: `16px` per line
+  - page mode: current viewport height
+- Coalescing cadence: one `requestAnimationFrame` flush per frame
+
+### ✅ Testing & Validation
+- ✅ Added unit coverage:
+  - `tests/unit/zoom-interaction.test.ts`
+- ✅ Full regression suite:
+  - `npm test` → **167/167 passing**
+- ✅ Type/build check:
+  - `npm run build` passed
+- ✅ Focused lint check on changed files:
+  - no errors
+- ⚠️ Manual dense-board zoom validation (wheel + trackpad feel) should still be run in-browser for final UX tuning confirmation.
+
+### 🚀 Follow-up Hardening (Feb 20, 2026)
+- **Canvas movement performance**
+  - Optimized multi-select drag preview updates and reduced drag-time visual overhead for selected nodes.
+  - Added temporary grid simplification while stage panning to keep click-drag navigation smoother on dense boards.
+  - Added live **Pan drag FPS** metric to the performance HUD (`components/board/PerformanceHUD.tsx`).
+- **AI throughput + consistency**
+  - Added deterministic bulk sticky-note planning for high-count prompts (numeric + number-word + “ones” phrasing).
+  - Added executor batch mutate path with safe fallback to sequential mutate calls when batch endpoint returns non-JSON/HTML.
+  - Added route-level deterministic bulk top-up guard so under-produced bulk runs are retried for missing objects.
+  - Increased deterministic bulk sticky-note cap from `300` → `2000` → `5000`.
+- **Observability**
+  - Added live **AI prompt execution** timing metric (ms) to the performance HUD.
+- **Validation**
+  - Added/expanded planner, executor, route-complex, multi-select, and performance indicator tests.
+  - Latest full suite run: **190/190 passing**.
+
+---
+
+## TICKET-13.5: LLM Observability + Dashboard Readiness (Planned)
+
+### 🧠 Plain-English Summary
+- **What this is:** A focused observability pass to ensure AI behavior is traceable and explainable in Langfuse/LangSmith.
+- **Why it matters:** Project expectations include not only integration, but also the ability to navigate traces and explain model/tool behavior clearly.
+
+### 📋 Planned Scope
+- Validate trace ingestion for:
+  - single-step AI commands
+  - follow-up `getBoardState -> mutation` flows
+  - complex planner commands
+  - failure/error paths
+- Ensure dashboard records:
+  - prompt/input
+  - model output
+  - latency
+  - token usage/cost
+  - per-step tool execution (args/results/errors where applicable)
+- Capture trace links/screenshots for demo narrative.
+
+### ✅ Planned Acceptance Criteria
+- Traces reliably appear for all major AI command classes.
+- At least one success and one failure trace can be explained end-to-end.
+- DEV-LOG includes evidence links/screenshots and interpretation notes.
+
+### 🚀 Sequencing
+- Execute after TICKET-13 and TICKET-13.1.
+- Keep scope bounded to observability integration + explanation readiness.
 
 ---
 
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 12/15 (80%)
+- **Tickets Completed:** 13/15 core tickets (+ TICKET-13.1 complete, TICKET-13.5 planned)
 - **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ AI suite passing (65/65)
+- **Tests:** ✅ Ticket-13 + AI regression suites passing (32/32 in latest validation run)
 - **Lint:** ✅ Zero errors
 
 ### ✅ Current Status
@@ -1543,10 +1682,13 @@ boards INSERT/UPDATE/DELETE → simple auth.uid() checks (no joins at all)
 10. ✅ Selection + Transforms (resize/rotate via Konva Transformer, viewport persistence)
 11. ✅ AI Agent: Basic Commands (natural-language create/update through realtime bridge)
 12. ✅ AI Agent: Complex Commands (multi-step planning + template/layout orchestration with collision-safe placement)
+13. ✅ Performance Profiling + Hardening (viewport culling, cursor throughput controls, reconnect/persistence lifecycle hardening)
+14. ✅ Zoom Interaction Hardening (delta-based zoom curve + rAF wheel coalescing + unified viewport writes)
 
 ### 📈 Next Priorities
-1. **TICKET-13:** Performance Profiling + Hardening
+1. **TICKET-13.5:** LLM Observability + Dashboard Walkthrough
 2. **TICKET-14:** Documentation + AI Dev Log + Cost Analysis
+3. **TICKET-15:** Final polish + demo readiness
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early

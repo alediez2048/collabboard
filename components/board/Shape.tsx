@@ -18,7 +18,10 @@ interface ShapeProps {
   y2?: number;
   rotation?: number;
   isSelected: boolean;
-  onSelect: (id: string) => void;
+  reduceEffects?: boolean;
+  onSelect: (id: string, options?: { additive: boolean }) => void;
+  onDragStart?: (id: string) => void;
+  onDragMove?: (id: string, x: number, y: number) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onTransformEnd?: (id: string) => void;
 }
@@ -38,7 +41,10 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
     y2,
     rotation,
     isSelected,
+    reduceEffects,
     onSelect,
+    onDragStart,
+    onDragMove,
     onDragEnd,
     onTransformEnd,
   },
@@ -94,8 +100,17 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         y={y}
         rotation={rotation ?? 0}
         draggable
-        onClick={() => onSelect(id)}
+        onClick={(e) =>
+          onSelect(id, {
+            additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
+          })
+        }
         onTap={() => onSelect(id)}
+        onDragStart={() => onDragStart?.(id)}
+        onDragMove={(e) => {
+          const node = e.target;
+          onDragMove?.(id, node.x(), node.y());
+        }}
         onDragEnd={(e) => {
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
@@ -107,6 +122,7 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           points={[0, 0, endDx, endDy]}
           stroke="transparent"
           strokeWidth={Math.max(strokeWidth + 12, 16)}
+          perfectDrawEnabled={false}
           listening={true}
         />
         {/* Visible line */}
@@ -116,6 +132,7 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           strokeWidth={isSelected ? strokeWidth + 1 : strokeWidth}
           lineCap="round"
           lineJoin="round"
+          perfectDrawEnabled={false}
           listening={false}
         />
       </Group>
@@ -134,8 +151,17 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         y={y}
         rotation={rotation ?? 0}
         draggable
-        onClick={() => onSelect(id)}
+        onClick={(e) =>
+          onSelect(id, {
+            additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
+          })
+        }
         onTap={() => onSelect(id)}
+        onDragStart={() => onDragStart?.(id)}
+        onDragMove={(e) => {
+          const node = e.target;
+          onDragMove?.(id, node.x(), node.y());
+        }}
         onDragEnd={(e) => {
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
@@ -149,10 +175,11 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           fill={fillColor}
           stroke={selectionStroke ?? strokeColor}
           strokeWidth={selectionStrokeWidth ?? strokeWidth}
-          shadowColor="rgba(0,0,0,0.15)"
-          shadowBlur={6}
-          shadowOffset={{ x: 0, y: 3 }}
-          shadowOpacity={0.3}
+          shadowColor={reduceEffects ? 'transparent' : 'rgba(0,0,0,0.15)'}
+          shadowBlur={reduceEffects ? 0 : 6}
+          shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 0, y: 3 }}
+          shadowOpacity={reduceEffects ? 0 : 0.3}
+          perfectDrawEnabled={false}
         />
       </Group>
     );
@@ -166,8 +193,17 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
       y={y}
       rotation={rotation ?? 0}
       draggable
-      onClick={() => onSelect(id)}
+      onClick={(e) =>
+        onSelect(id, {
+          additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
+        })
+      }
       onTap={() => onSelect(id)}
+      onDragStart={() => onDragStart?.(id)}
+      onDragMove={(e) => {
+        const node = e.target;
+        onDragMove?.(id, node.x(), node.y());
+      }}
       onDragEnd={(e) => {
         const node = e.target;
         onDragEnd(id, node.x(), node.y());
@@ -181,10 +217,11 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         stroke={selectionStroke ?? strokeColor}
         strokeWidth={selectionStrokeWidth ?? strokeWidth}
         cornerRadius={4}
-        shadowColor="rgba(0,0,0,0.15)"
-        shadowBlur={6}
-        shadowOffset={{ x: 0, y: 3 }}
-        shadowOpacity={0.3}
+        shadowColor={reduceEffects ? 'transparent' : 'rgba(0,0,0,0.15)'}
+        shadowBlur={reduceEffects ? 0 : 6}
+        shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 0, y: 3 }}
+        shadowOpacity={reduceEffects ? 0 : 0.3}
+        perfectDrawEnabled={false}
       />
     </Group>
   );

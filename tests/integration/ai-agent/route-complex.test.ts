@@ -162,4 +162,144 @@ describe('POST /api/ai/command complex planning', () => {
     expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(mockTracing).not.toHaveBeenCalled();
   });
+
+  it('routes high-count generation commands through deterministic planner path', async () => {
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      actions: Array.from({ length: 100 }, (_, index) => ({
+        tool: 'createStickyNote',
+        args: { text: `Item ${index + 1}`, x: 100, y: 100, color: '#ffeb3b' },
+        result: `Affected: note-${index + 1}`,
+      })),
+      objectsAffected: Array.from({ length: 100 }, (_, index) => `note-${index + 1}`),
+      toolOutputs: [],
+    });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Generate 100 objects' }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const plannedCalls = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(plannedCalls).toHaveLength(100);
+    expect(plannedCalls.every((call: { function?: { name?: string } }) => call.function?.name === 'createStickyNote')).toBe(true);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
+  it('routes 1000-note command through deterministic planner path with exact count', async () => {
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      actions: Array.from({ length: 1000 }, (_, index) => ({
+        tool: 'createStickyNote',
+        args: { text: `Item ${index + 1}`, x: 100, y: 100, color: '#a3e635' },
+        result: `Affected: note-${index + 1}`,
+      })),
+      objectsAffected: Array.from({ length: 1000 }, (_, index) => `note-${index + 1}`),
+      toolOutputs: [],
+    });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Add 1000 green sticky notes' }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const plannedCalls = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(plannedCalls).toHaveLength(1000);
+    expect(plannedCalls.every((call: { function?: { name?: string } }) => call.function?.name === 'createStickyNote')).toBe(true);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
+  it('routes number-word sticky-note bulk commands through deterministic planner path', async () => {
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      actions: Array.from({ length: 50 }, (_, index) => ({
+        tool: 'createStickyNote',
+        args: { text: `Item ${index + 1}`, x: 100, y: 100, color: '#ffeb3b' },
+        result: `Affected: note-${index + 1}`,
+      })),
+      objectsAffected: Array.from({ length: 50 }, (_, index) => `note-${index + 1}`),
+      toolOutputs: [],
+    });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Add fifty sticky notes for ideas' }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const plannedCalls = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(plannedCalls).toHaveLength(50);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
+  it('routes "ones" phrasing through deterministic planner path with exact count', async () => {
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      actions: Array.from({ length: 100 }, (_, index) => ({
+        tool: 'createStickyNote',
+        args: { text: `Item ${index + 1}`, x: 100, y: 100, color: '#a3e635' },
+        result: `Affected: note-${index + 1}`,
+      })),
+      objectsAffected: Array.from({ length: 100 }, (_, index) => `note-${index + 1}`),
+      toolOutputs: [],
+    });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Add 100 green ones afterwards' }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const plannedCalls = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(plannedCalls).toHaveLength(100);
+    expect(plannedCalls.every((call: { function?: { name?: string } }) => call.function?.name === 'createStickyNote')).toBe(true);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
+  it('tops up missing objects when deterministic bulk execution under-produces', async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        actions: Array.from({ length: 10 }, (_, index) => ({
+          tool: 'createStickyNote',
+          args: { text: `Item ${index + 1}`, x: 100, y: 100, color: '#a3e635' },
+          result: `Affected: note-${index + 1}`,
+        })),
+        objectsAffected: Array.from({ length: 10 }, (_, index) => `note-${index + 1}`),
+        toolOutputs: [],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: Array.from({ length: 90 }, (_, index) => ({
+          tool: 'createStickyNote',
+          args: { text: `Item ${index + 11}`, x: 100, y: 100, color: '#a3e635' },
+          result: `Affected: note-${index + 11}`,
+        })),
+        objectsAffected: Array.from({ length: 90 }, (_, index) => `note-${index + 11}`),
+        toolOutputs: [],
+      });
+
+    const response = await POST(
+      makeRequest({ boardId: 'board-1', command: 'Add 100 green ones afterwards' }),
+    );
+    const body = await response.json() as {
+      success: boolean;
+      objectsAffected: string[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(body.objectsAffected).toHaveLength(100);
+  });
 });

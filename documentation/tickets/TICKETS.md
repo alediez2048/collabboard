@@ -20,7 +20,9 @@
 
 ## Polish + Docs (Due: Sun 10:59 PM CT)
 
-- [ ] **TICKET-13** — Performance Profiling + Hardening (~2 hrs)
+- [x] **TICKET-13** — Performance Profiling + Hardening (~2 hrs) ✅ Completed Feb 19
+- [ ] **TICKET-13.1** — Zoom Interaction Hardening (~0.75-1 hr)
+- [ ] **TICKET-13.5** — LLM Observability (Langfuse/LangSmith) + Dashboard Walkthrough (~1–1.5 hrs)
 - [ ] **TICKET-14** — Documentation + AI Dev Log + Cost Analysis (~2 hrs)
 - [ ] **TICKET-15** — Final Polish + Social Post (~1.5 hrs)
 
@@ -36,6 +38,15 @@ _Update this file after completing each ticket. Add a one-line note if you devia
 ### TICKET-13 (Kickoff Feb 19, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-13-PRIMER.md`
 - 🎯 Focus: performance profiling + hardening (fps/sync latency/object-count resilience + reconnect behavior)
+- ✅ Completed Feb 19, 2026 — viewport culling + batched Yjs observer updates + cursor throughput hardening + per-room persistence debounce hardening + reconnect/recovery stress tests passing
+
+### TICKET-13.1 (Planned Feb 20, 2026)
+- 📌 Primer created: `documentation/tickets/TICKET-13.1-PRIMER.md`
+- 🎯 Focus: zoom interaction hardening (delta-based zoom curve, smoother wheel/trackpad behavior, pointer-anchor stability)
+
+### TICKET-13.5 (Planned Feb 19, 2026)
+- 📌 Focus: instrument and validate AI traces in Langfuse/LangSmith, including planner/executor step visibility
+- 🎯 Outcome: confidently navigate dashboards and explain LLM/tool behavior using real traces during demo/interview
 
 ### TICKET-11 (Completed Feb 18, 2026)
 - ✅ All acceptance criteria met for basic AI command flow

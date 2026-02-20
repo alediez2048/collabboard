@@ -15,7 +15,9 @@ interface FrameProps {
   strokeColor: string;
   rotation?: number;
   isSelected: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, options?: { additive: boolean }) => void;
+  onDragStart?: (id: string) => void;
+  onDragMove?: (id: string, x: number, y: number) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onDoubleClick: (id: string) => void;
   onTransformEnd?: (id: string) => void;
@@ -34,6 +36,8 @@ export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
     rotation,
     isSelected,
     onSelect,
+    onDragStart,
+    onDragMove,
     onDragEnd,
     onDoubleClick,
     onTransformEnd,
@@ -83,10 +87,19 @@ export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
       y={y}
       rotation={rotation ?? 0}
       draggable
-      onClick={() => onSelect(id)}
+      onClick={(e) =>
+        onSelect(id, {
+          additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
+        })
+      }
       onTap={() => onSelect(id)}
       onDblClick={() => onDoubleClick(id)}
       onDblTap={() => onDoubleClick(id)}
+      onDragStart={() => onDragStart?.(id)}
+      onDragMove={(e) => {
+        const node = e.target;
+        onDragMove?.(id, node.x(), node.y());
+      }}
       onDragEnd={(e) => {
         const node = e.target;
         onDragEnd(id, node.x(), node.y());

@@ -6,7 +6,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import { IncomingMessage } from 'http';
 import { verifySupabaseToken } from './auth';
-import { loadSnapshot, saveSnapshot, createDebouncedSave } from './persistence';
+import { loadSnapshot, createDebouncedSave } from './persistence';
 
 // Message types
 const messageSync = 0;
@@ -24,6 +24,7 @@ const roomClients = new Map<string, Set<WebSocket>>();
 // otherwise a second connection can sync an empty doc to the client while
 // the first connection is still fetching the snapshot from Supabase.
 const roomLoadPromises = new Map<string, Promise<void>>();
+const roomDebouncedSaves = new Map<string, ReturnType<typeof createDebouncedSave>>();
 
 function getOrCreateDoc(roomName: string): Y.Doc {
   let doc = docs.get(roomName);
@@ -46,6 +47,18 @@ function getOrCreateAwareness(roomName: string, doc: Y.Doc): awarenessProtocol.A
   }
   
   return awareness;
+}
+
+function getOrCreateDebouncedSave(
+  roomName: string,
+  doc: Y.Doc,
+): ReturnType<typeof createDebouncedSave> {
+  const existing = roomDebouncedSaves.get(roomName);
+  if (existing) return existing;
+
+  const created = createDebouncedSave(roomName, doc);
+  roomDebouncedSaves.set(roomName, created);
+  return created;
 }
 
 export function setupYjsServer(wss: WebSocketServer): void {
@@ -112,7 +125,7 @@ export function setupYjsServer(wss: WebSocketServer): void {
       }
 
       // Wire up debounced snapshot save for this room
-      const debounceSave = createDebouncedSave(roomName, doc);
+      const debounceSave = getOrCreateDebouncedSave(roomName, doc);
 
       // Track which awareness clientIds belong to this WebSocket connection so
       // we can explicitly remove them when the socket closes — without this,
@@ -257,20 +270,30 @@ export function setupYjsServer(wss: WebSocketServer): void {
           currentRoomSet.delete(ws);
 
           if (currentRoomSet.size === 0) {
-            // Last client — cancel the pending debounce and save a final snapshot immediately
-            debounceSave.cancel();
+            // Last client — flush pending persistence work before potential eviction
             roomClients.delete(roomName);
             roomLoadPromises.delete(roomName);
-            saveSnapshot(roomName, doc).then(() => {
-              // Evict the in-memory doc after saving so the next first-client
-              // connection loads a fresh snapshot from Supabase rather than
-              // reusing a potentially stale in-memory doc.
-              docs.delete(roomName);
-              awarenessMap.delete(roomName);
-              console.log(`[Yjs] Room ${roomName} evicted from memory`);
-            }).catch((err) => {
-              console.error(`[Yjs] Final snapshot save error for room ${roomName}:`, err);
-            });
+            void debounceSave
+              .flush()
+              .then(() => {
+                // If someone rejoined while we were persisting, keep the room hot.
+                const activeClients = roomClients.get(roomName);
+                if (activeClients && activeClients.size > 0) {
+                  console.log(`[Yjs] Room ${roomName} rejoined before eviction; keeping in memory`);
+                  return;
+                }
+
+                // Evict the in-memory room after save so the next first-client
+                // connection always starts from persisted state.
+                docs.delete(roomName);
+                awarenessMap.delete(roomName);
+                roomDebouncedSaves.delete(roomName);
+                console.log(`[Yjs] Room ${roomName} evicted from memory`);
+              })
+              .catch((err) => {
+                roomDebouncedSaves.delete(roomName);
+                console.error(`[Yjs] Final snapshot save error for room ${roomName}:`, err);
+              });
             console.log(`[Yjs] Last client left room ${roomName} — final snapshot saving...`);
           }
         }

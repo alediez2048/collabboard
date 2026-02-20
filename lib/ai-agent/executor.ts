@@ -45,6 +45,18 @@ interface BridgeMutateResponse {
   error?: string;
 }
 
+interface BridgeBatchResult {
+  affectedObjectIds: string[];
+  error?: string;
+}
+
+interface BridgeBatchMutateResponse {
+  success: boolean;
+  results?: BridgeBatchResult[];
+  failedIndex?: number;
+  error?: string;
+}
+
 interface BridgeStateResponse extends ScopedBoardState {
   error?: string;
 }
@@ -67,6 +79,8 @@ const MUTATION_TOOLS = new Set([
   'updateText',
   'changeColor',
 ]);
+
+const BULK_MUTATION_BATCH_THRESHOLD = 10;
 
 function validateArgs(
   toolName: string,
@@ -104,6 +118,23 @@ async function callBridgeMutate(
   return res.json() as Promise<BridgeMutateResponse>;
 }
 
+async function callBridgeMutateBatch(
+  boardId: string,
+  userId: string,
+  actions: Array<{ tool: string; args: Record<string, unknown> }>,
+): Promise<BridgeBatchMutateResponse> {
+  const url = `${getRealtimeServerUrl()}/ai/mutate-batch`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getBridgeSecret()}`,
+    },
+    body: JSON.stringify({ boardId, userId, actions }),
+  });
+  return res.json() as Promise<BridgeBatchMutateResponse>;
+}
+
 async function callBridgeBoardState(
   boardId: string,
 ): Promise<BridgeStateResponse> {
@@ -134,7 +165,8 @@ export async function executeToolCalls(
   const objectsAffected: string[] = [];
   const toolOutputs: ToolOutputRecord[] = [];
 
-  for (const call of toolCalls) {
+  for (let index = 0; index < toolCalls.length; index += 1) {
+    const call = toolCalls[index];
     const toolName = call.function.name;
 
     // Parse args
@@ -187,6 +219,138 @@ export async function executeToolCalls(
     // Mutation tools
     if (!MUTATION_TOOLS.has(toolName)) {
       return { success: false, actions, objectsAffected, toolOutputs, error: `Unknown tool: ${toolName}` };
+    }
+
+    const mutationBatch: Array<{
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+    }> = [{ toolCallId: call.id, toolName, args }];
+
+    for (let lookahead = index + 1; lookahead < toolCalls.length; lookahead += 1) {
+      const nextCall = toolCalls[lookahead];
+      const nextToolName = nextCall.function.name;
+      if (nextToolName === 'getBoardState') break;
+      if (!MUTATION_TOOLS.has(nextToolName)) break;
+
+      let nextArgs: Record<string, unknown>;
+      try {
+        nextArgs = JSON.parse(nextCall.function.arguments) as Record<string, unknown>;
+      } catch {
+        break;
+      }
+
+      if (
+        nextToolName === 'createStickyNote'
+        && typeof nextArgs.text === 'string'
+        && nextArgs.text.trim().length === 0
+      ) {
+        nextArgs = { ...nextArgs, text: 'New note' };
+      }
+
+      const nextValidation = validateArgs(nextToolName, nextArgs);
+      if (!nextValidation.valid) break;
+
+      mutationBatch.push({
+        toolCallId: nextCall.id,
+        toolName: nextToolName,
+        args: nextArgs,
+      });
+    }
+
+    if (mutationBatch.length >= BULK_MUTATION_BATCH_THRESHOLD) {
+      let shouldFallbackToSequential = false;
+      try {
+        const batchResponse = await callBridgeMutateBatch(
+          boardId,
+          userId,
+          mutationBatch.map((item) => ({ tool: item.toolName, args: item.args })),
+        );
+
+        const batchResults = Array.isArray(batchResponse.results) ? batchResponse.results : [];
+        const appliedCount = Math.min(batchResults.length, mutationBatch.length);
+
+        for (let offset = 0; offset < appliedCount; offset += 1) {
+          const batchCall = mutationBatch[offset];
+          const result = batchResults[offset];
+          const affectedIds = result?.affectedObjectIds ?? [];
+          objectsAffected.push(...affectedIds);
+          actions.push({
+            tool: batchCall.toolName,
+            args: batchCall.args,
+            result: `Affected: ${affectedIds.join(', ')}`,
+          });
+          toolOutputs.push({
+            toolCallId: batchCall.toolCallId,
+            tool: batchCall.toolName,
+            output: { success: !result?.error, affectedObjectIds: affectedIds, ...(result?.error ? { error: result.error } : {}) },
+          });
+        }
+
+        if (!batchResponse.success) {
+          return {
+            success: false,
+            actions,
+            objectsAffected,
+            toolOutputs,
+            error: batchResponse.error ?? 'Bridge batch error',
+          };
+        }
+
+        if (batchResults.length !== mutationBatch.length) {
+          return {
+            success: false,
+            actions,
+            objectsAffected,
+            toolOutputs,
+            error: 'Bridge batch response shape mismatch',
+          };
+        }
+
+        index += mutationBatch.length - 1;
+        continue;
+      } catch {
+        shouldFallbackToSequential = true;
+      }
+
+      if (shouldFallbackToSequential) {
+        for (const batchCall of mutationBatch) {
+          try {
+            const bridgeResult = await callBridgeMutate(
+              boardId,
+              userId,
+              batchCall.toolName,
+              batchCall.args,
+            );
+            if (!bridgeResult.success) {
+              return {
+                success: false,
+                actions,
+                objectsAffected,
+                toolOutputs,
+                error: bridgeResult.error ?? `Bridge error on tool ${batchCall.toolName}`,
+              };
+            }
+            objectsAffected.push(...bridgeResult.affectedObjectIds);
+            actions.push({
+              tool: batchCall.toolName,
+              args: batchCall.args,
+              result: `Affected: ${bridgeResult.affectedObjectIds.join(', ')}`,
+            });
+            toolOutputs.push({
+              toolCallId: batchCall.toolCallId,
+              tool: batchCall.toolName,
+              output: bridgeResult,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Bridge request failed';
+            return { success: false, actions, objectsAffected, toolOutputs, error: message };
+          }
+        }
+
+        index += mutationBatch.length - 1;
+        continue;
+      }
     }
 
     try {

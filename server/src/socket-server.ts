@@ -8,6 +8,7 @@ interface CursorMoveEvent {
   x: number;
   y: number;
   color: string;
+  sentAt?: number;
 }
 
 export function setupSocketIO(httpServer: HTTPServer): SocketIOServer {

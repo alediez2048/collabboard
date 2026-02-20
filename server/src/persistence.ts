@@ -2,6 +2,8 @@ import * as Y from 'yjs';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 let serviceClient: SupabaseClient | null = null;
+const DEFAULT_SAVE_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 150;
 
 function getServiceClient(): SupabaseClient {
   if (!serviceClient) {
@@ -15,11 +17,21 @@ function getServiceClient(): SupabaseClient {
   return serviceClient;
 }
 
+function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(String(error));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Load the latest snapshot for a board and apply it to the Y.Doc.
  * Returns true if a snapshot was found, false if the board is new.
  */
 export async function loadSnapshot(boardId: string, doc: Y.Doc): Promise<boolean> {
+  const startedAt = Date.now();
   try {
     const supabase = getServiceClient();
     const { data, error } = await supabase
@@ -31,14 +43,14 @@ export async function loadSnapshot(boardId: string, doc: Y.Doc): Promise<boolean
     if (error) {
       // PGRST116 = no rows found — this is expected for a brand new board
       if (error.code === 'PGRST116') {
-        console.log(`[Persistence] No snapshot found for board ${boardId} (new board)`);
+        console.log(`[Persistence] No snapshot found for board ${boardId} (new board, ${Date.now() - startedAt}ms)`);
         return false;
       }
       throw error;
     }
 
     if (!data) {
-      console.log(`[Persistence] No snapshot found for board ${boardId} (new board)`);
+      console.log(`[Persistence] No snapshot found for board ${boardId} (new board, ${Date.now() - startedAt}ms)`);
       return false;
     }
 
@@ -64,10 +76,10 @@ export async function loadSnapshot(boardId: string, doc: Y.Doc): Promise<boolean
       return false;
     }
 
-    console.log(`[Persistence] Snapshot loaded for board ${boardId}`);
+    console.log(`[Persistence] Snapshot loaded for board ${boardId} in ${Date.now() - startedAt}ms`);
     return true;
   } catch (err) {
-    console.error(`[Persistence] Failed to load snapshot for ${boardId}:`, err);
+    console.error(`[Persistence] Failed to load snapshot for ${boardId} after ${Date.now() - startedAt}ms:`, err);
     return false;
   }
 }
@@ -77,6 +89,7 @@ export async function loadSnapshot(boardId: string, doc: Y.Doc): Promise<boolean
  * Uses upsert so board_id stays unique — only one snapshot row per board.
  */
 export async function saveSnapshot(boardId: string, doc: Y.Doc): Promise<void> {
+  const startedAt = Date.now();
   try {
     const supabase = getServiceClient();
     const state = Y.encodeStateAsUpdate(doc);
@@ -96,9 +109,16 @@ export async function saveSnapshot(boardId: string, doc: Y.Doc): Promise<void> {
       );
 
     if (error) throw error;
-    console.log(`[Persistence] Snapshot saved for board ${boardId} (${state.length} bytes)`);
+    console.log(
+      `[Persistence] Snapshot saved for board ${boardId} (${state.length} bytes, ${Date.now() - startedAt}ms)`,
+    );
   } catch (err) {
-    console.error(`[Persistence] Failed to save snapshot for ${boardId}:`, err);
+    const typedError = toError(err);
+    console.error(
+      `[Persistence] Failed to save snapshot for ${boardId} after ${Date.now() - startedAt}ms:`,
+      typedError,
+    );
+    throw typedError;
   }
 }
 
@@ -107,21 +127,81 @@ export async function saveSnapshot(boardId: string, doc: Y.Doc): Promise<void> {
  * Call debouncedSave() on every Y.Doc update.
  * Call cancel() to clear any pending timer (e.g. before an immediate save on disconnect).
  */
+async function saveSnapshotWithRetry(
+  boardId: string,
+  doc: Y.Doc,
+  retries: number,
+): Promise<void> {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await saveSnapshot(boardId, doc);
+      return;
+    } catch (error) {
+      if (attempt === retries) {
+        throw error;
+      }
+
+      const retryDelayMs = RETRY_BASE_DELAY_MS * (attempt + 1);
+      console.warn(
+        `[Persistence] Save retry ${attempt + 1}/${retries} for ${boardId} in ${retryDelayMs}ms`,
+      );
+      await delay(retryDelayMs);
+    }
+  }
+}
+
 export function createDebouncedSave(
   boardId: string,
   doc: Y.Doc,
   intervalMs = 500,
-): { debouncedSave: () => void; cancel: () => void } {
+): { debouncedSave: () => void; cancel: () => void; flush: () => Promise<void> } {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let inFlightSave: Promise<void> | null = null;
+  let shouldSaveAfterInFlight = false;
+
+  const runSave = async (): Promise<void> => {
+    if (inFlightSave) {
+      shouldSaveAfterInFlight = true;
+      await inFlightSave;
+      return;
+    }
+
+    inFlightSave = saveSnapshotWithRetry(boardId, doc, DEFAULT_SAVE_RETRIES)
+      .catch((err) => {
+        console.error(`[Persistence] Debounced save error for ${boardId}:`, err);
+        throw err;
+      })
+      .finally(async () => {
+        inFlightSave = null;
+        if (shouldSaveAfterInFlight) {
+          shouldSaveAfterInFlight = false;
+          try {
+            await runSave();
+          } catch (err) {
+            console.error(`[Persistence] Follow-up save error for ${boardId}:`, err);
+          }
+        }
+      });
+
+    await inFlightSave;
+  };
 
   const debouncedSave = (): void => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      saveSnapshot(boardId, doc).catch((err) => {
-        console.error(`[Persistence] Debounced save error for ${boardId}:`, err);
+      void runSave().catch((err) => {
+        console.error(`[Persistence] Debounced save execution error for ${boardId}:`, err);
       });
     }, intervalMs);
+  };
+
+  const flush = async (): Promise<void> => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    await runSave();
   };
 
   const cancel = (): void => {
@@ -129,7 +209,8 @@ export function createDebouncedSave(
       clearTimeout(timer);
       timer = null;
     }
+    shouldSaveAfterInFlight = false;
   };
 
-  return { debouncedSave, cancel };
+  return { debouncedSave, cancel, flush };
 }

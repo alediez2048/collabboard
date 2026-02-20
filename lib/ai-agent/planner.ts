@@ -20,11 +20,194 @@ export interface ComplexCommandPlan {
 const RETRO_COLUMNS = ['What Went Well', "What Didn't", 'Action Items'] as const;
 const SWOT_COLUMNS = ['Strengths', 'Weaknesses', 'Opportunities', 'Threats'] as const;
 const STAGE_COLORS = ['#60a5fa', '#a3e635', '#c084fc', '#fb923c', '#f472b6'] as const;
+const MAX_BULK_STICKY_NOTES = 5000;
+const MIN_BULK_STICKY_NOTES_FAST_PATH = 10;
+
+const COLOR_NAME_TO_HEX: Record<string, string> = {
+  red: '#f87171',
+  blue: '#60a5fa',
+  green: '#a3e635',
+  purple: '#c084fc',
+  orange: '#fb923c',
+  yellow: '#ffeb3b',
+};
 
 interface TemplateStepDefinition {
   tool: 'createFrame' | 'createStickyNote';
   args: Record<string, unknown>;
   footprint: LayoutRect;
+}
+
+interface BulkStickyGenerationIntent {
+  count: number;
+  color: string;
+}
+
+const NUMBER_WORD_VALUES: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+};
+
+function parseNumberWords(tokens: string[]): number | null {
+  let current = 0;
+  let hasNumberWord = false;
+
+  for (const token of tokens) {
+    if (token === 'and') continue;
+
+    if (token === 'hundred') {
+      if (current === 0) {
+        current = 100;
+      } else {
+        current *= 100;
+      }
+      hasNumberWord = true;
+      continue;
+    }
+
+    const value = NUMBER_WORD_VALUES[token];
+    if (value === undefined) {
+      break;
+    }
+
+    current += value;
+    hasNumberWord = true;
+  }
+
+  if (!hasNumberWord || current <= 0) return null;
+  return current;
+}
+
+function parseCountFromPhrase(phrase: string): number | null {
+  const digitMatch = phrase.match(/\b(\d{1,4})\b/);
+  if (digitMatch) {
+    const parsed = Number.parseInt(digitMatch[1] ?? '0', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  const tokens = phrase.toLowerCase().match(/[a-z]+/g) ?? [];
+  for (let start = 0; start < tokens.length; start += 1) {
+    const candidate: string[] = [];
+    for (let end = start; end < tokens.length; end += 1) {
+      const token = tokens[end];
+      if (token === 'and' || token === 'hundred' || token in NUMBER_WORD_VALUES) {
+        candidate.push(token);
+        continue;
+      }
+      break;
+    }
+
+    if (candidate.length === 0) continue;
+    const parsed = parseNumberWords(candidate);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+}
+
+function parseBulkStickyGenerationIntent(command: string): BulkStickyGenerationIntent | null {
+  const normalized = command.trim().toLowerCase();
+  const hasActionVerb = /\b(create|generate|add|make)\b/.test(normalized);
+  if (!hasActionVerb) {
+    return null;
+  }
+
+  const hasStickyTarget = /\b(sticky\s*notes?|stickies|notes?)\b/.test(normalized);
+  const hasGenericObjectTarget = /\bobjects?\b/.test(normalized);
+  const hasOnesTarget = /\bones?\b/.test(normalized);
+  if (!hasStickyTarget && !hasGenericObjectTarget && !hasOnesTarget) {
+    return null;
+  }
+
+  const hasExplicitShapeTarget = /\b(shape|shapes|rectangle|rectangles|circle|circles|line|lines|frame|frames|connector|connectors)\b/.test(normalized);
+  if (!hasStickyTarget && hasExplicitShapeTarget) {
+    return null;
+  }
+
+  const quantityPhraseBeforeSticky = normalized.match(
+    /(?:create|generate|add|make)\s+(.+?)\s+(?:sticky\s*notes?|stickies|notes?)\b/,
+  );
+  const quantityPhraseBeforeObjects = normalized.match(
+    /(?:create|generate|add|make)\s+(.+?)\s+objects?\b/,
+  );
+  const quantityPhraseBeforeOnes = normalized.match(
+    /(?:create|generate|add|make)\s+(.+?)\s+ones?\b/,
+  );
+
+  const parsedCount =
+    (quantityPhraseBeforeSticky?.[1] ? parseCountFromPhrase(quantityPhraseBeforeSticky[1]) : null)
+    ?? (quantityPhraseBeforeObjects?.[1] ? parseCountFromPhrase(quantityPhraseBeforeObjects[1]) : null)
+    ?? (quantityPhraseBeforeOnes?.[1] ? parseCountFromPhrase(quantityPhraseBeforeOnes[1]) : null)
+    ?? parseCountFromPhrase(normalized);
+
+  if (!parsedCount || parsedCount < MIN_BULK_STICKY_NOTES_FAST_PATH) {
+    return null;
+  }
+
+  const namedColor = Object.keys(COLOR_NAME_TO_HEX).find((name) => normalized.includes(name));
+
+  return {
+    count: Math.min(parsedCount, MAX_BULK_STICKY_NOTES),
+    color: namedColor ? COLOR_NAME_TO_HEX[namedColor] : '#ffeb3b',
+  };
+}
+
+function planBulkStickyGeneration(intent: BulkStickyGenerationIntent): ComplexCommandPlan {
+  const columns = Math.ceil(Math.sqrt(intent.count));
+  const positions = computeGridLayout(
+    Array.from({ length: intent.count }, (_, index) => ({
+      id: `bulk-note-${index + 1}`,
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+    })),
+    {
+      columns,
+      startX: 120,
+      startY: 120,
+      horizontalGap: 40,
+      verticalGap: 40,
+    },
+  );
+
+  return {
+    requiresBoardState: false,
+    steps: positions.map((position, index) => ({
+      tool: 'createStickyNote',
+      args: {
+        text: `Item ${index + 1}`,
+        x: position.x,
+        y: position.y,
+        color: intent.color,
+      },
+    })),
+  };
 }
 
 function parseJourneyStageCount(command: string): number {
@@ -336,6 +519,11 @@ function planProsConsGrid(command: string, state?: ScopedBoardState): ComplexCom
 
 export function planComplexCommand(command: string, boardState?: ScopedBoardState): ComplexCommandPlan | null {
   const normalized = command.trim().toLowerCase();
+  const bulkStickyIntent = parseBulkStickyGenerationIntent(command);
+
+  if (bulkStickyIntent) {
+    return planBulkStickyGeneration(bulkStickyIntent);
+  }
 
   if (normalized.includes('create a swot analysis')) {
     if (!boardState) {

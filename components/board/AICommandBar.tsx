@@ -4,6 +4,11 @@ import { useState, useRef, type KeyboardEvent, type ReactElement } from 'react';
 
 interface AICommandBarProps {
   boardId: string;
+  onCommandMetrics?: (metrics: {
+    elapsedMs: number;
+    success: boolean;
+    objectsAffected: number;
+  }) => void;
 }
 
 type CommandStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -37,7 +42,7 @@ function buildSuccessMessage(response: CommandResponse): string {
   return `Done — ${pluralise(count, 'object')} updated via: ${tools.join(', ')}.`;
 }
 
-export function AICommandBar({ boardId }: AICommandBarProps): ReactElement {
+export function AICommandBar({ boardId, onCommandMetrics }: AICommandBarProps): ReactElement {
   const [command, setCommand] = useState('');
   const [status, setStatus] = useState<CommandStatus>('idle');
   const [statusMessage, setStatusMessage] = useState('');
@@ -46,6 +51,7 @@ export function AICommandBar({ boardId }: AICommandBarProps): ReactElement {
   async function submitCommand(): Promise<void> {
     const trimmed = command.trim();
     if (!trimmed || status === 'loading') return;
+    const startedAt = performance.now();
 
     setStatus('loading');
     setStatusMessage('');
@@ -62,21 +68,41 @@ export function AICommandBar({ boardId }: AICommandBarProps): ReactElement {
       if (!res.ok) {
         setStatus('error');
         setStatusMessage(data.error ?? `Server error (${res.status})`);
+        onCommandMetrics?.({
+          elapsedMs: performance.now() - startedAt,
+          success: false,
+          objectsAffected: 0,
+        });
         return;
       }
 
       if (!data.success) {
         setStatus('error');
         setStatusMessage(data.error ?? 'The action could not be completed.');
+        onCommandMetrics?.({
+          elapsedMs: performance.now() - startedAt,
+          success: false,
+          objectsAffected: data.objectsAffected.length,
+        });
         return;
       }
 
       setStatus('success');
       setStatusMessage(buildSuccessMessage(data));
+      onCommandMetrics?.({
+        elapsedMs: performance.now() - startedAt,
+        success: true,
+        objectsAffected: data.objectsAffected.length,
+      });
       setCommand('');
     } catch {
       setStatus('error');
       setStatusMessage('Network error — please try again.');
+      onCommandMetrics?.({
+        elapsedMs: performance.now() - startedAt,
+        success: false,
+        objectsAffected: 0,
+      });
     } finally {
       // Keep the status message visible briefly, then reset to idle
       setTimeout(() => {

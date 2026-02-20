@@ -42,6 +42,12 @@ interface MutateRequest {
   action: MutateAction;
 }
 
+interface MutateBatchRequest {
+  boardId: string;
+  userId: string;
+  actions: MutateAction[];
+}
+
 interface BoardStateRequest {
   boardId: string;
 }
@@ -109,13 +115,12 @@ function getAllObjects(objects: Y.Map<BoardObject>): BoardObject[] {
 
 function applyMutation(
   objects: Y.Map<BoardObject>,
-  allObjects: BoardObject[],
   action: MutateAction,
   userId: string,
-): { affectedObjectIds: string[]; error?: string } {
+  nextZIndex: number,
+): { affectedObjectIds: string[]; error?: string; nextZIndex: number } {
   const { tool, args } = action;
   const now = new Date().toISOString();
-  const zIndex = allObjects.length + 1;
 
   switch (tool) {
     case 'createStickyNote': {
@@ -128,12 +133,12 @@ function applyMutation(
         width: 200,
         height: 200,
         rotation: 0,
-        zIndex,
+        zIndex: nextZIndex,
         properties: { text: args.text as string, color: args.color as string },
         createdBy: userId,
         updatedAt: now,
       });
-      return { affectedObjectIds: [id] };
+      return { affectedObjectIds: [id], nextZIndex: nextZIndex + 1 };
     }
 
     case 'createShape': {
@@ -160,12 +165,12 @@ function applyMutation(
         width: args.width as number,
         height: args.height as number,
         rotation: 0,
-        zIndex,
+        zIndex: nextZIndex,
         properties,
         createdBy: userId,
         updatedAt: now,
       });
-      return { affectedObjectIds: [id] };
+      return { affectedObjectIds: [id], nextZIndex: nextZIndex + 1 };
     }
 
     case 'createFrame': {
@@ -187,7 +192,7 @@ function applyMutation(
         createdBy: userId,
         updatedAt: now,
       });
-      return { affectedObjectIds: [id] };
+      return { affectedObjectIds: [id], nextZIndex: nextZIndex + 1 };
     }
 
     case 'createConnector': {
@@ -200,7 +205,7 @@ function applyMutation(
         width: 0,
         height: 0,
         rotation: 0,
-        zIndex,
+        zIndex: nextZIndex,
         properties: {
           fromId: args.fromId as string,
           toId: args.toId as string,
@@ -210,49 +215,49 @@ function applyMutation(
         createdBy: userId,
         updatedAt: now,
       });
-      return { affectedObjectIds: [id] };
+      return { affectedObjectIds: [id], nextZIndex: nextZIndex + 1 };
     }
 
     case 'moveObject': {
       const objectId = args.objectId as string;
       const obj = objects.get(objectId);
-      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found` };
+      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found`, nextZIndex };
       updateObject(objects, objectId, { x: args.x as number, y: args.y as number });
-      return { affectedObjectIds: [objectId] };
+      return { affectedObjectIds: [objectId], nextZIndex };
     }
 
     case 'resizeObject': {
       const objectId = args.objectId as string;
       const obj = objects.get(objectId);
-      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found` };
+      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found`, nextZIndex };
       updateObject(objects, objectId, { width: args.width as number, height: args.height as number });
-      return { affectedObjectIds: [objectId] };
+      return { affectedObjectIds: [objectId], nextZIndex };
     }
 
     case 'updateText': {
       const objectId = args.objectId as string;
       const obj = objects.get(objectId);
-      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found` };
+      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found`, nextZIndex };
       const textKey = obj.type === 'frame' ? 'title' : 'text';
       updateObject(objects, objectId, {
         properties: { ...obj.properties, [textKey]: args.newText as string },
       });
-      return { affectedObjectIds: [objectId] };
+      return { affectedObjectIds: [objectId], nextZIndex };
     }
 
     case 'changeColor': {
       const objectId = args.objectId as string;
       const obj = objects.get(objectId);
-      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found` };
+      if (!obj) return { affectedObjectIds: [], error: `Object ${objectId} not found`, nextZIndex };
       const colorKey = obj.type === 'sticky_note' ? 'color' : 'fillColor';
       updateObject(objects, objectId, {
         properties: { ...obj.properties, [colorKey]: args.color as string },
       });
-      return { affectedObjectIds: [objectId] };
+      return { affectedObjectIds: [objectId], nextZIndex };
     }
 
     default:
-      return { affectedObjectIds: [], error: `Unknown tool: ${tool}` };
+      return { affectedObjectIds: [], error: `Unknown tool: ${tool}`, nextZIndex };
   }
 }
 
@@ -280,8 +285,7 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
     }
 
     const objects = doc.getMap<BoardObject>('objects');
-    const allObjects = getAllObjects(objects);
-    const result = applyMutation(objects, allObjects, action, userId);
+    const result = applyMutation(objects, action, userId, objects.size + 1);
 
     if (result.error) {
       res.json({ success: false, affectedObjectIds: [], error: result.error });
@@ -292,6 +296,72 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
     res.json({ success: true, affectedObjectIds: result.affectedObjectIds });
   } catch (err) {
     console.error('[AI Bridge] Mutate error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /ai/mutate-batch
+ * Apply a sequence of tool actions in order, inside a single Yjs transaction.
+ * Stops at first failure and returns partial successes that were already applied.
+ */
+router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> => {
+  if (!verifyBridgeSecret(req, res)) return;
+
+  const { boardId, userId, actions } = req.body as MutateBatchRequest;
+
+  if (!boardId || !userId || !Array.isArray(actions) || actions.length === 0) {
+    res.status(400).json({ success: false, error: 'boardId, userId, and non-empty actions[] are required' });
+    return;
+  }
+
+  try {
+    const doc = await getOrLoadDoc(boardId);
+    if (!doc) {
+      res.status(404).json({ success: false, error: 'Board not found' });
+      return;
+    }
+
+    const objects = doc.getMap<BoardObject>('objects');
+    let nextZIndex = objects.size + 1;
+    const results: Array<{ affectedObjectIds: string[] }> = [];
+    let failedIndex = -1;
+    let failedError: string | undefined;
+
+    doc.transact(() => {
+      for (let index = 0; index < actions.length; index += 1) {
+        const action = actions[index];
+        const result = applyMutation(objects, action, userId, nextZIndex);
+        nextZIndex = result.nextZIndex;
+
+        if (result.error) {
+          failedIndex = index;
+          failedError = result.error;
+          break;
+        }
+
+        results.push({ affectedObjectIds: result.affectedObjectIds });
+      }
+    });
+
+    if (failedError) {
+      res.json({
+        success: false,
+        results,
+        failedIndex,
+        error: failedError,
+      });
+      return;
+    }
+
+    const affectedObjectIds = results.flatMap((result) => result.affectedObjectIds);
+    res.json({
+      success: true,
+      results,
+      affectedObjectIds,
+    });
+  } catch (err) {
+    console.error('[AI Bridge] Mutate batch error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });

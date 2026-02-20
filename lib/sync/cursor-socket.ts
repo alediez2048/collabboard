@@ -6,6 +6,7 @@ export interface CursorMoveEvent {
   x: number;
   y: number;
   color: string;
+  sentAt?: number;
 }
 
 export interface CursorSocketOptions {

@@ -9,9 +9,9 @@ interface ConnectorProps {
   toId: string;
   color: string;
   strokeWidth: number;
-  boardObjects: BoardObject[]; // full list so endpoints are reactive
+  objectLookup: ReadonlyMap<string, BoardObject>;
   isSelected: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, options?: { additive: boolean }) => void;
 }
 
 /**
@@ -39,12 +39,12 @@ export function Connector({
   toId,
   color,
   strokeWidth,
-  boardObjects,
+  objectLookup,
   isSelected,
   onSelect,
 }: ConnectorProps): React.ReactElement | null {
-  const fromObj = boardObjects.find((o) => o.id === fromId);
-  const toObj = boardObjects.find((o) => o.id === toId);
+  const fromObj = objectLookup.get(fromId);
+  const toObj = objectLookup.get(toId);
 
   // If either connected object is missing (e.g. deleted), render nothing
   if (!fromObj || !toObj) return null;
@@ -62,7 +62,11 @@ export function Connector({
         stroke="transparent"
         strokeWidth={Math.max(strokeWidth + 12, 16)}
         listening={true}
-        onClick={() => onSelect(id)}
+        onClick={(e) =>
+          onSelect(id, {
+            additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
+          })
+        }
         onTap={() => onSelect(id)}
       />
       {/* Visible arrow */}

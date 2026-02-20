@@ -10,6 +10,12 @@ export interface YjsProviderOptions {
 export interface ProviderStatus {
   status: 'connecting' | 'connected' | 'disconnected';
   synced: boolean;
+  reconnectCount: number;
+}
+
+function normalizeYjsWebSocketUrl(url: string): string {
+  const wsBase = url.replace(/^http/, 'ws').replace(/\/+$/, '');
+  return `${wsBase}/yjs`;
 }
 
 /**
@@ -29,7 +35,7 @@ export function createYjsProvider(
     process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000';
 
   // Ensure we have the /yjs path
-  const fullWsUrl = wsUrl.replace(/^http/, 'ws') + '/yjs';
+  const fullWsUrl = normalizeYjsWebSocketUrl(wsUrl);
 
   console.log(`[Yjs Provider] Connecting to ${fullWsUrl} with room: ${boardId}`);
 
@@ -44,27 +50,60 @@ export function createYjsProvider(
     }
   );
 
+  let hasConnectedOnce = false;
+  let reconnectCount = 0;
+  let synced = false;
+
   // Connection status logging
   provider.on('status', (event: { status: string }) => {
-    console.log(`[Yjs Provider] Connection status: ${event.status}`);
+    const status = event.status as ProviderStatus['status'];
+    if (status === 'connected') {
+      if (hasConnectedOnce) {
+        reconnectCount += 1;
+      } else {
+        hasConnectedOnce = true;
+      }
+    }
+
+    console.log('[Yjs Provider] Connection status', {
+      boardId,
+      status,
+      synced,
+      reconnectCount,
+    });
   });
 
   provider.on('sync', (isSynced: boolean) => {
-    console.log(`[Yjs Provider] Sync status: ${isSynced ? 'synced' : 'syncing'}`);
+    synced = isSynced;
+    console.log('[Yjs Provider] Sync status', {
+      boardId,
+      synced: isSynced,
+      reconnectCount,
+    });
   });
 
   // Error handling
   provider.on('connection-error', (event: Event) => {
-    console.error('[Yjs Provider] Connection error:', event);
+    console.error('[Yjs Provider] Connection error', {
+      boardId,
+      reconnectCount,
+      event,
+    });
   });
 
   provider.on('connection-close', (event: CloseEvent | null) => {
     if (event) {
-      console.warn(
-        `[Yjs Provider] Connection closed: ${event.code} - ${event.reason || 'No reason'}`
-      );
+      console.warn('[Yjs Provider] Connection closed', {
+        boardId,
+        reconnectCount,
+        code: event.code,
+        reason: event.reason || 'No reason',
+      });
     } else {
-      console.warn('[Yjs Provider] Connection closed');
+      console.warn('[Yjs Provider] Connection closed', {
+        boardId,
+        reconnectCount,
+      });
     }
   });
 
@@ -76,5 +115,6 @@ export function createYjsProvider(
  */
 export function destroyProvider(provider: WebsocketProvider): void {
   console.log('[Yjs Provider] Destroying provider...');
+  provider.disconnect();
   provider.destroy();
 }

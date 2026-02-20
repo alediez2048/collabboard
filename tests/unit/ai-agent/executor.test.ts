@@ -19,6 +19,22 @@ function makeBridgeFailure(error = 'Object not found') {
   };
 }
 
+function makeBridgeBatchSuccess(results: Array<{ affectedObjectIds: string[] }>) {
+  return {
+    ok: true,
+    json: async () => ({ success: true, results }),
+  };
+}
+
+function makeBridgeHtmlErrorResponse() {
+  return {
+    ok: false,
+    json: async () => {
+      throw new SyntaxError("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON");
+    },
+  };
+}
+
 function makeToolCall(name: string, args: Record<string, unknown>): ToolCallInput {
   return {
     id: `call-${crypto.randomUUID()}`,
@@ -201,5 +217,65 @@ describe('executeToolCalls', () => {
 
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('batches high-volume mutation runs into a single bridge request', async () => {
+    const calls = Array.from({ length: 12 }, (_, index) =>
+      makeToolCall('createStickyNote', {
+        text: `Note ${index + 1}`,
+        x: 100 + (index * 20),
+        y: 100 + (index * 20),
+        color: '#ffeb3b',
+      }),
+    );
+
+    mockFetch.mockResolvedValueOnce(
+      makeBridgeBatchSuccess(
+        calls.map((_, index) => ({ affectedObjectIds: [`note-${index + 1}`] })),
+      ),
+    );
+
+    const result = await executeToolCalls(calls, 'board-abc', 'user-1');
+
+    expect(result.success).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain('/ai/mutate-batch');
+    const payload = JSON.parse(String(calledInit.body)) as {
+      actions: Array<{ tool: string; args: Record<string, unknown> }>;
+    };
+    expect(payload.actions).toHaveLength(12);
+    expect(result.objectsAffected).toHaveLength(12);
+  });
+
+  it('falls back to sequential mutate calls when batch response is non-JSON', async () => {
+    let mutateCount = 0;
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/ai/mutate-batch')) {
+        return makeBridgeHtmlErrorResponse();
+      }
+      mutateCount += 1;
+      return makeBridgeSuccess([`note-${mutateCount}`]);
+    });
+
+    const calls = Array.from({ length: 12 }, (_, index) =>
+      makeToolCall('createStickyNote', {
+        text: `Note ${index + 1}`,
+        x: 100 + (index * 20),
+        y: 100 + (index * 20),
+        color: '#ffeb3b',
+      }),
+    );
+
+    const result = await executeToolCalls(calls, 'board-abc', 'user-1');
+
+    expect(result.success).toBe(true);
+    expect(result.objectsAffected).toHaveLength(12);
+    const batchCalls = mockFetch.mock.calls.filter(([url]) => String(url).includes('/ai/mutate-batch'));
+    const singleMutateCalls = mockFetch.mock.calls.filter(
+      ([url]) => String(url).includes('/ai/mutate') && !String(url).includes('/ai/mutate-batch'),
+    );
+    expect(batchCalls).toHaveLength(1);
+    expect(singleMutateCalls).toHaveLength(12);
   });
 });

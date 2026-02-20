@@ -7,6 +7,7 @@ interface UIState {
   setSelectedTool: (tool: UIState['selectedTool']) => void;
   setZoom: (zoom: number) => void;
   setPan: (pan: { x: number; y: number }) => void;
+  setViewport: (viewport: { zoom: number; pan: { x: number; y: number } }) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -16,4 +17,5 @@ export const useUIStore = create<UIState>((set) => ({
   setSelectedTool: (tool) => set({ selectedTool: tool }),
   setZoom: (zoom) => set({ zoom }),
   setPan: (pan) => set({ pan }),
+  setViewport: (viewport) => set({ zoom: viewport.zoom, pan: viewport.pan }),
 }));

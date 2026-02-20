@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Transformer } from 'react-konva';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Stage, Layer, Rect, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 import * as Y from 'yjs';
@@ -16,15 +16,30 @@ import { ColorPicker } from './ColorPicker';
 import { RemoteCursorsLayer } from './RemoteCursorsLayer';
 import { ShareButton } from './ShareButton';
 import { PresenceBar } from './PresenceBar';
+import { PerformanceHUD } from './PerformanceHUD';
 import { createBoardDoc, addObject, updateObject, removeObject, getAllObjects, type BoardObject } from '@/lib/yjs/board-doc';
 import { Shape } from './Shape';
 import { Frame } from './Frame';
 import { Connector } from './Connector';
 import { createYjsProvider } from '@/lib/yjs/provider';
-import { createCursorSocket, emitCursorMove } from '@/lib/sync/cursor-socket';
+import { createCursorSocket, emitCursorMove, type CursorMoveEvent } from '@/lib/sync/cursor-socket';
+import { createThrottle } from '@/lib/sync/throttle';
 import { createClient } from '@/lib/supabase/client';
 import { normalizeGeometry } from '@/lib/utils/geometry';
+import {
+  buildMovedPositionUpdates,
+  computePrimaryDragDelta,
+  getMovableSelectionIds,
+} from '@/lib/utils/multi-select-drag';
 import { loadViewport, saveViewport } from '@/lib/utils/viewport-storage';
+import { applyPointerAnchoredWheelZoom, normalizeWheelDelta } from '@/lib/utils/zoom-interaction';
+import {
+  buildObjectLookup,
+  computeCanvasViewport,
+  isObjectVisible,
+  selectIntersectingObjectIds,
+} from '@/lib/utils/viewport-culling';
+import type { AwarenessState } from '@/types/presence';
 import { AICommandBar } from './AICommandBar';
 
 interface CanvasProps {
@@ -51,13 +66,37 @@ function getUserColor(userId: string): string {
   return colors[hash % colors.length];
 }
 
+function isTextEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select'
+  );
+}
+
+function appendRollingSample(
+  samples: number[],
+  next: number,
+  maxSamples: number,
+): number {
+  samples.push(next);
+  if (samples.length > maxSamples) {
+    samples.shift();
+  }
+  const total = samples.reduce((sum, value) => sum + value, 0);
+  return total / samples.length;
+}
+
 export function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const shapeRefs = useRef<Map<string, Konva.Node>>(new Map());
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [viewportReady, setViewportReady] = useState(false);
-  const { zoom, pan, setZoom, setPan, selectedTool, setSelectedTool } = useUIStore();
+  const { zoom, pan, setViewport, selectedTool, setSelectedTool } = useUIStore();
 
   // Yjs and Socket.io connection state
   const [yDoc, setYDoc] = useState<Y.Doc | null>(null);
@@ -70,6 +109,7 @@ export function Canvas({ boardId }: CanvasProps) {
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
 
   // Selection and editing state
+  const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -85,13 +125,145 @@ export function Canvas({ boardId }: CanvasProps) {
 
   // Connector tool: ID of the first object clicked (awaiting second click)
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [marqueeSelection, setMarqueeSelection] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    additive: boolean;
+  } | null>(null);
+  const [isStagePanning, setIsStagePanning] = useState(false);
+  const [isMultiDragActive, setIsMultiDragActive] = useState(false);
+  const multiDragSessionRef = useRef<{
+    primaryId: string;
+    movableIds: string[];
+    initialPositions: Map<string, { x: number; y: number }>;
+    followerNodes: Array<{ node: Konva.Node; initialX: number; initialY: number }>;
+    pendingPrimaryPosition: { x: number; y: number } | null;
+    rafId: number | null;
+  } | null>(null);
 
   const [userColor, setUserColor] = useState<string>('#3b82f6');
   // Store session info in refs so cursor emission never needs async calls
   const sessionUserIdRef = useRef<string>('');
   const sessionUserNameRef = useRef<string>('Anonymous');
-  const lastEmitTime = useRef<number>(0);
-  const THROTTLE_MS = 33; // ~30Hz
+  const CURSOR_THROTTLE_MS = 40; // 25Hz (within 20-30Hz target)
+  const emitCursorMoveThrottledRef = useRef<(event: CursorMoveEvent) => void>(() => {});
+  const cursorEmitMetricsRef = useRef({
+    emittedInWindow: 0,
+    lastLogAt: 0,
+  });
+  const boardObserverMetricsRef = useRef({
+    observedInWindow: 0,
+    flushedInWindow: 0,
+    lastLogAt: 0,
+  });
+  const renderMetricsRef = useRef({
+    lastLogAt: 0,
+  });
+  const objectSyncSamplesRef = useRef<number[]>([]);
+  const cursorSyncSamplesRef = useRef<number[]>([]);
+  const zoomSpeedSamplesRef = useRef<number[]>([]);
+  const [fps, setFps] = useState<number | null>(null);
+  const [objectSyncLatencyMs, setObjectSyncLatencyMs] = useState<number | null>(null);
+  const [cursorSyncLatencyMs, setCursorSyncLatencyMs] = useState<number | null>(null);
+  const [zoomSpeedPercentPerSecond, setZoomSpeedPercentPerSecond] = useState<number | null>(null);
+  const [panDragFps, setPanDragFps] = useState<number | null>(null);
+  const [aiPromptExecutionMs, setAiPromptExecutionMs] = useState<number | null>(null);
+  const [onlineUsersCount, setOnlineUsersCount] = useState(0);
+  const performanceHudUpdateRef = useRef({
+    objectLatencyUpdatedAt: 0,
+    cursorLatencyUpdatedAt: 0,
+    zoomSpeedUpdatedAt: 0,
+  });
+  const zoomSpeedMetricsRef = useRef<{
+    lastZoomAppliedAt: number;
+    idleResetTimer: ReturnType<typeof setTimeout> | null;
+  }>({
+    lastZoomAppliedAt: 0,
+    idleResetTimer: null,
+  });
+  const panDragMetricsRef = useRef<{
+    active: boolean;
+    rafId: number | null;
+    framesInWindow: number;
+    lastSampleAt: number;
+    idleResetTimer: ReturnType<typeof setTimeout> | null;
+  }>({
+    active: false,
+    rafId: null,
+    framesInWindow: 0,
+    lastSampleAt: 0,
+    idleResetTimer: null,
+  });
+  const viewportRef = useRef({ zoom, pan });
+  const wheelZoomStateRef = useRef<{
+    rafId: number | null;
+    pixelDeltaY: number;
+    pointer: { x: number; y: number } | null;
+  }>({
+    rafId: null,
+    pixelDeltaY: 0,
+    pointer: null,
+  });
+
+  const objectLookup = useMemo(
+    () => buildObjectLookup(boardObjects),
+    [boardObjects],
+  );
+  const selectedObjectIdSet = useMemo(
+    () => new Set(selectedObjectIds),
+    [selectedObjectIds],
+  );
+
+  useEffect(() => {
+    viewportRef.current = { zoom, pan };
+  }, [zoom, pan]);
+
+  const viewportBounds = useMemo(
+    () => computeCanvasViewport(dimensions, pan, zoom, 200),
+    [dimensions, pan, zoom],
+  );
+
+  const visibleBoardObjects = useMemo(() => {
+    // Culling has overhead; skip it on small boards.
+    if (boardObjects.length <= 150) {
+      return boardObjects;
+    }
+
+    return boardObjects.filter((object) => {
+      if (selectedObjectIdSet.has(object.id) || object.id === editingObjectId) {
+        return true;
+      }
+
+      return isObjectVisible(object, viewportBounds, objectLookup);
+    });
+  }, [boardObjects, selectedObjectIdSet, editingObjectId, viewportBounds, objectLookup]);
+
+  const layeredVisibleObjects = useMemo(() => {
+    const frames: BoardObject[] = [];
+    const connectors: BoardObject[] = [];
+    const shapes: BoardObject[] = [];
+    const stickyNotes: BoardObject[] = [];
+
+    for (const object of visibleBoardObjects) {
+      if (object.type === 'frame') {
+        frames.push(object);
+      } else if (object.type === 'connector') {
+        connectors.push(object);
+      } else if (object.type === 'sticky_note') {
+        stickyNotes.push(object);
+      } else if (
+        object.type === 'rectangle' ||
+        object.type === 'circle' ||
+        object.type === 'line'
+      ) {
+        shapes.push(object);
+      }
+    }
+
+    return { frames, connectors, shapes, stickyNotes };
+  }, [visibleBoardObjects]);
 
   // Handle window resize
   useEffect(() => {
@@ -110,10 +282,10 @@ export function Canvas({ boardId }: CanvasProps) {
   // Rehydrate viewport from localStorage when the board first loads
   useEffect(() => {
     const saved = loadViewport(boardId);
-    setZoom(saved.zoom);
-    setPan(saved.pan);
+    viewportRef.current = saved;
+    setViewport(saved);
     setViewportReady(true);
-  }, [boardId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [boardId, setViewport]);
 
   // Debounced persist: write viewport to localStorage 150ms after the last change
   useEffect(() => {
@@ -124,56 +296,240 @@ export function Canvas({ boardId }: CanvasProps) {
     return () => clearTimeout(timer);
   }, [boardId, zoom, pan, viewportReady]);
 
-  // Handle zoom with mouse wheel
+  // Lightweight FPS monitor for live performance HUD.
+  useEffect(() => {
+    let rafId = 0;
+    let lastSampleAt = performance.now();
+    let frames = 0;
+
+    const tick = (now: number): void => {
+      frames += 1;
+      const elapsedMs = now - lastSampleAt;
+      if (elapsedMs >= 1000) {
+        setFps((frames * 1000) / elapsedMs);
+        frames = 0;
+        lastSampleAt = now;
+      }
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, []);
+
+  // Build a stable, throttled cursor emitter so pointer movement cannot exceed ~30Hz.
+  useEffect(() => {
+    emitCursorMoveThrottledRef.current = createThrottle(
+      (event: CursorMoveEvent): void => {
+        if (!socket || !socket.connected) return;
+
+        emitCursorMove(socket, event);
+
+        if (process.env.NODE_ENV === 'development') {
+          const now = Date.now();
+          const metrics = cursorEmitMetricsRef.current;
+          metrics.emittedInWindow += 1;
+
+          if (metrics.lastLogAt === 0) {
+            metrics.lastLogAt = now;
+            return;
+          }
+
+          const elapsedMs = now - metrics.lastLogAt;
+          if (elapsedMs >= 5000) {
+            const emittedPerSecond = Number(
+              (metrics.emittedInWindow / (elapsedMs / 1000)).toFixed(1),
+            );
+            console.debug('[Canvas Perf] cursor emit rate', {
+              emittedPerSecond,
+              intervalMs: elapsedMs,
+            });
+            metrics.emittedInWindow = 0;
+            metrics.lastLogAt = now;
+          }
+        }
+      },
+      CURSOR_THROTTLE_MS,
+    );
+  }, [socket, CURSOR_THROTTLE_MS]);
+
+  useEffect(() => {
+    const wheelState = wheelZoomStateRef.current;
+    const zoomSpeedMetrics = zoomSpeedMetricsRef.current;
+    return () => {
+      const rafId = wheelState.rafId;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      if (zoomSpeedMetrics.idleResetTimer !== null) {
+        clearTimeout(zoomSpeedMetrics.idleResetTimer);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const panMetrics = panDragMetricsRef.current;
+    return () => {
+      if (panMetrics.rafId !== null) {
+        window.cancelAnimationFrame(panMetrics.rafId);
+      }
+      if (panMetrics.idleResetTimer !== null) {
+        clearTimeout(panMetrics.idleResetTimer);
+      }
+    };
+  }, []);
+
+  const flushPendingWheelZoom = (): void => {
+    const stage = stageRef.current;
+    const wheelState = wheelZoomStateRef.current;
+    wheelState.rafId = null;
+
+    if (!stage || !wheelState.pointer || wheelState.pixelDeltaY === 0) {
+      wheelState.pixelDeltaY = 0;
+      wheelState.pointer = null;
+      return;
+    }
+
+    const currentViewport = viewportRef.current;
+    const nextViewport = applyPointerAnchoredWheelZoom({
+      viewport: currentViewport,
+      pointer: wheelState.pointer,
+      deltaY: wheelState.pixelDeltaY,
+      deltaMode: 0,
+      pageHeight: 1,
+    });
+
+    wheelState.pixelDeltaY = 0;
+    wheelState.pointer = null;
+
+    if (
+      nextViewport.zoom === currentViewport.zoom &&
+      nextViewport.pan.x === currentViewport.pan.x &&
+      nextViewport.pan.y === currentViewport.pan.y
+    ) {
+      return;
+    }
+
+    const zoomSpeedMetrics = zoomSpeedMetricsRef.current;
+    const now = performance.now();
+    if (zoomSpeedMetrics.lastZoomAppliedAt > 0) {
+      const elapsedMs = now - zoomSpeedMetrics.lastZoomAppliedAt;
+      if (elapsedMs > 0) {
+        const baseZoom = currentViewport.zoom > 0 ? currentViewport.zoom : 1;
+        const zoomDeltaPercent = Math.abs(((nextViewport.zoom - currentViewport.zoom) / baseZoom) * 100);
+        const instantaneousSpeed = (zoomDeltaPercent * 1000) / elapsedMs;
+        const smoothedSpeed = appendRollingSample(
+          zoomSpeedSamplesRef.current,
+          instantaneousSpeed,
+          20,
+        );
+
+        if (now - performanceHudUpdateRef.current.zoomSpeedUpdatedAt >= 80) {
+          setZoomSpeedPercentPerSecond(smoothedSpeed);
+          performanceHudUpdateRef.current.zoomSpeedUpdatedAt = now;
+        }
+      }
+    }
+    zoomSpeedMetrics.lastZoomAppliedAt = now;
+    if (zoomSpeedMetrics.idleResetTimer !== null) {
+      clearTimeout(zoomSpeedMetrics.idleResetTimer);
+    }
+    zoomSpeedMetrics.idleResetTimer = setTimeout(() => {
+      zoomSpeedSamplesRef.current = [];
+      setZoomSpeedPercentPerSecond(null);
+    }, 300);
+
+    viewportRef.current = nextViewport;
+    setViewport(nextViewport);
+  };
+
+  // Handle zoom with mouse wheel/trackpad (coalesced to one write per frame).
   const handleWheel = (e: KonvaEventObject<WheelEvent>): void => {
     e.evt.preventDefault();
 
     const stage = stageRef.current;
     if (!stage) return;
 
-    const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    // Zoom factor
-    const scaleBy = 1.05;
-    const direction = e.evt.deltaY > 0 ? -1 : 1;
+    const wheelState = wheelZoomStateRef.current;
+    const pageHeight = dimensions.height > 0 ? dimensions.height : window.innerHeight;
+    wheelState.pixelDeltaY += normalizeWheelDelta(
+      e.evt.deltaY,
+      e.evt.deltaMode,
+      pageHeight,
+    );
+    wheelState.pointer = { x: pointer.x, y: pointer.y };
 
-    // Calculate new scale with limits (0.1x to 10x)
-    const newScale = Math.max(0.1, Math.min(10, oldScale * Math.pow(scaleBy, direction)));
+    if (wheelState.rafId !== null) return;
+    wheelState.rafId = window.requestAnimationFrame(flushPendingWheelZoom);
+  };
 
-    // Update zoom in store
-    setZoom(newScale);
+  const runPanDragMetricsTick = (now: number): void => {
+    const metrics = panDragMetricsRef.current;
+    if (!metrics.active) return;
 
-    // Calculate new position to zoom toward pointer
-    const mousePointTo = {
-      x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale,
-    };
+    metrics.framesInWindow += 1;
+    const elapsedMs = now - metrics.lastSampleAt;
+    if (elapsedMs >= 400) {
+      setPanDragFps((metrics.framesInWindow * 1000) / elapsedMs);
+      metrics.framesInWindow = 0;
+      metrics.lastSampleAt = now;
+    }
 
-    const newPos = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    };
+    metrics.rafId = window.requestAnimationFrame(runPanDragMetricsTick);
+  };
 
-    // Update stage position
-    stage.position(newPos);
-    stage.batchDraw();
+  const handleStageDragStart = (e: KonvaEventObject<DragEvent>): void => {
+    if (e.target !== stageRef.current) return;
 
-    // Update pan in store
-    setPan(newPos);
+    const metrics = panDragMetricsRef.current;
+    metrics.active = true;
+    metrics.framesInWindow = 0;
+    metrics.lastSampleAt = performance.now();
+    if (metrics.idleResetTimer !== null) {
+      clearTimeout(metrics.idleResetTimer);
+      metrics.idleResetTimer = null;
+    }
+    if (metrics.rafId !== null) {
+      window.cancelAnimationFrame(metrics.rafId);
+    }
+    metrics.rafId = window.requestAnimationFrame(runPanDragMetricsTick);
+
+    setIsStagePanning(true);
   };
 
   // Handle pan on drag end — only update pan when the Stage itself was dragged,
   // not when a child object's dragend event bubbles up to the Stage.
   const handleDragEnd = (e: KonvaEventObject<DragEvent>): void => {
     if (e.target !== stageRef.current) return;
+
+    const panMetrics = panDragMetricsRef.current;
+    panMetrics.active = false;
+    if (panMetrics.rafId !== null) {
+      window.cancelAnimationFrame(panMetrics.rafId);
+      panMetrics.rafId = null;
+    }
+    if (panMetrics.idleResetTimer !== null) {
+      clearTimeout(panMetrics.idleResetTimer);
+    }
+    panMetrics.idleResetTimer = setTimeout(() => {
+      setPanDragFps(null);
+    }, 700);
+    setIsStagePanning(false);
+
     const stage = e.target as Konva.Stage;
-    setPan({ x: stage.x(), y: stage.y() });
+    const nextViewport = {
+      zoom: viewportRef.current.zoom,
+      pan: { x: stage.x(), y: stage.y() },
+    };
+    viewportRef.current = nextViewport;
+    setViewport(nextViewport);
   };
 
   // Handle mouse move — emit throttled cursor event AND update shape preview
-  const handleMouseMove = (e: KonvaEventObject<MouseEvent>): void => {
+  const handleMouseMove = (): void => {
     const stage = stageRef.current;
     if (!stage) return;
 
@@ -184,19 +540,24 @@ export function Canvas({ boardId }: CanvasProps) {
     const canvasX = (pointerPos.x - stage.x()) / stage.scaleX();
     const canvasY = (pointerPos.y - stage.y()) / stage.scaleY();
 
-    // Emit throttled cursor event (no async needed — session cached in ref)
-    if (socket && socket.connected && sessionUserIdRef.current) {
-      const now = Date.now();
-      if (now - lastEmitTime.current >= THROTTLE_MS) {
-        lastEmitTime.current = now;
-        emitCursorMove(socket, {
-          userId: sessionUserIdRef.current,
-          userName: sessionUserNameRef.current,
-          x: canvasX,
-          y: canvasY,
-          color: userColor,
-        });
-      }
+    // Emit cursor event through the shared throttle helper (~20-30Hz target)
+    if (sessionUserIdRef.current) {
+      emitCursorMoveThrottledRef.current({
+        userId: sessionUserIdRef.current,
+        userName: sessionUserNameRef.current,
+        x: canvasX,
+        y: canvasY,
+        color: userColor,
+        sentAt: Date.now(),
+      });
+    }
+
+    // Update marquee selection rectangle while shift-dragging on empty canvas.
+    if (marqueeSelection) {
+      setMarqueeSelection((prev) =>
+        prev ? { ...prev, currentX: canvasX, currentY: canvasY } : null,
+      );
+      return;
     }
 
     // Update in-progress shape preview
@@ -312,20 +673,88 @@ export function Canvas({ boardId }: CanvasProps) {
     if (!yDoc) return;
 
     const objects = yDoc.getMap<BoardObject>('objects');
+    let frameId: number | null = null;
 
-    const observer = (): void => {
+    const flushBoardObjects = (): void => {
+      frameId = null;
       const allObjects = getAllObjects(objects);
       setBoardObjects(allObjects);
-      console.log('[Canvas] Board objects updated:', allObjects.length);
+
+      if (process.env.NODE_ENV === 'development') {
+        const now = Date.now();
+        const metrics = boardObserverMetricsRef.current;
+        metrics.flushedInWindow += 1;
+
+        if (metrics.lastLogAt === 0) {
+          metrics.lastLogAt = now;
+          return;
+        }
+
+        const elapsedMs = now - metrics.lastLogAt;
+        if (elapsedMs >= 5000) {
+          console.debug('[Canvas Perf] yjs observer throughput', {
+            observedPerSecond: Number(
+              (metrics.observedInWindow / (elapsedMs / 1000)).toFixed(1),
+            ),
+            flushedPerSecond: Number(
+              (metrics.flushedInWindow / (elapsedMs / 1000)).toFixed(1),
+            ),
+            objectCount: allObjects.length,
+          });
+
+          metrics.observedInWindow = 0;
+          metrics.flushedInWindow = 0;
+          metrics.lastLogAt = now;
+        }
+      }
+    };
+
+    const scheduleBoardFlush = (): void => {
+      if (frameId !== null) return;
+      frameId = window.requestAnimationFrame(flushBoardObjects);
+    };
+
+    const observer = (event: Y.YMapEvent<BoardObject>): void => {
+      if (process.env.NODE_ENV === 'development') {
+        boardObserverMetricsRef.current.observedInWindow += 1;
+      }
+
+      const now = Date.now();
+      for (const key of event.keysChanged) {
+        const changedObject = objects.get(key);
+        if (!changedObject) continue;
+        if (changedObject.createdBy === sessionUserIdRef.current) continue;
+
+        const updatedAtMs = Date.parse(changedObject.updatedAt);
+        if (!Number.isFinite(updatedAtMs)) continue;
+
+        const latencyMs = now - updatedAtMs;
+        if (latencyMs < 0 || latencyMs > 5000) continue;
+
+        const averageLatencyMs = appendRollingSample(
+          objectSyncSamplesRef.current,
+          latencyMs,
+          20,
+        );
+        if (now - performanceHudUpdateRef.current.objectLatencyUpdatedAt >= 250) {
+          setObjectSyncLatencyMs(averageLatencyMs);
+          performanceHudUpdateRef.current.objectLatencyUpdatedAt = now;
+        }
+      }
+
+      scheduleBoardFlush();
     };
 
     // Observe changes
     objects.observe(observer);
 
     // Initial load
-    observer();
+    flushBoardObjects();
 
     return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
       objects.unobserve(observer);
     };
   }, [yDoc]);
@@ -341,6 +770,7 @@ export function Canvas({ boardId }: CanvasProps) {
         setUserColor(color);
         sessionUserIdRef.current = session.user.id;
         sessionUserNameRef.current = session.user.email?.split('@')[0] || 'Anonymous';
+        setOnlineUsersCount(1);
         console.log('[Canvas] User color assigned:', color);
       }
     };
@@ -377,37 +807,140 @@ export function Canvas({ boardId }: CanvasProps) {
     };
   }, [provider, userColor]); // re-run when provider initializes or color resolves
 
+  // Track online user count for live performance indicator panel.
+  useEffect(() => {
+    if (!provider) return;
+
+    const updateOnlineUsers = (): void => {
+      const states = Array.from(provider.awareness.getStates().values()) as AwarenessState[];
+      const userIds = new Set<string>();
+      for (const state of states) {
+        const userId = state.user?.userId;
+        if (userId) userIds.add(userId);
+      }
+      setOnlineUsersCount(userIds.size);
+    };
+
+    provider.awareness.on('change', updateOnlineUsers);
+    updateOnlineUsers();
+
+    return () => {
+      provider.awareness.off('change', updateOnlineUsers);
+    };
+  }, [provider]);
+
   // Remote cursor state and cleanup are handled inside RemoteCursorsLayer
   // to prevent cursor updates from re-rendering sticky notes and the grid.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
 
-  // Handle delete key
+    const now = Date.now();
+    const metrics = renderMetricsRef.current;
+    if (metrics.lastLogAt !== 0 && now - metrics.lastLogAt < 5000) {
+      return;
+    }
+
+    metrics.lastLogAt = now;
+    console.debug('[Canvas Perf] render sample', {
+      totalObjects: boardObjects.length,
+      renderedObjects: visibleBoardObjects.length,
+      culledObjects: Math.max(boardObjects.length - visibleBoardObjects.length, 0),
+      zoom,
+    });
+  }, [boardObjects.length, visibleBoardObjects.length, zoom]);
+
+  const isColorPickerEligible = (object: BoardObject | undefined): boolean =>
+    !!object &&
+    object.type !== 'line' &&
+    object.type !== 'connector' &&
+    object.type !== 'frame';
+
+  const applySelection = (
+    objectIds: string[],
+    preferredPrimaryId: string | null =
+      objectIds.length > 0 ? objectIds[objectIds.length - 1] : null,
+  ): void => {
+    multiDragSessionRef.current = null;
+    setSelectedObjectIds(objectIds);
+    setSelectedObjectId(preferredPrimaryId);
+
+    if (objectIds.length !== 1) {
+      setShowColorPicker(false);
+      return;
+    }
+
+    const selectedObject = objectLookup.get(objectIds[0]);
+    setShowColorPicker(isColorPickerEligible(selectedObject));
+  };
+
+  const handleCursorLatencySample = (latencyMs: number): void => {
+    const averageLatencyMs = appendRollingSample(
+      cursorSyncSamplesRef.current,
+      latencyMs,
+      20,
+    );
+    const now = Date.now();
+    if (now - performanceHudUpdateRef.current.cursorLatencyUpdatedAt >= 250) {
+      setCursorSyncLatencyMs(averageLatencyMs);
+      performanceHudUpdateRef.current.cursorLatencyUpdatedAt = now;
+    }
+  };
+
+  // Handle keyboard shortcuts (delete + select all)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedObjectId && !editingObjectId) {
+      const key = (e.key ?? '').toLowerCase();
+      const isSelectAllShortcut =
+        (e.metaKey || e.ctrlKey) && !e.altKey && (key === 'a' || e.code === 'KeyA');
+
+      // Keep native text-selection behavior in focused text inputs.
+      if (isSelectAllShortcut && isTextEditableTarget(e.target)) {
+        return;
+      }
+
+      if (isSelectAllShortcut && !editingObjectId) {
+        e.preventDefault();
+        const allObjectIds = boardObjects.map((object) => object.id);
+        applySelection(allObjectIds);
+        return;
+      }
+
+      if (
+        (e.key === 'Backspace' || e.key === 'Delete') &&
+        selectedObjectIds.length > 0 &&
+        !editingObjectId
+      ) {
         e.preventDefault();
         if (yDoc) {
           const objects = yDoc.getMap<BoardObject>('objects');
-          removeObject(objects, selectedObjectId);
+          const selectedIds = new Set(selectedObjectIds);
 
-          // Remove any connectors whose fromId or toId referenced the deleted object
+          selectedObjectIds.forEach((id) => {
+            removeObject(objects, id);
+          });
+
+          // Remove any connectors whose fromId or toId referenced a deleted object
           objects.forEach((obj, key) => {
-            if (
-              obj.type === 'connector' &&
-              (obj.properties.fromId === selectedObjectId || obj.properties.toId === selectedObjectId)
-            ) {
+            if (obj.type !== 'connector') return;
+            const fromId =
+              typeof obj.properties.fromId === 'string' ? obj.properties.fromId : '';
+            const toId =
+              typeof obj.properties.toId === 'string' ? obj.properties.toId : '';
+            if (selectedIds.has(fromId) || selectedIds.has(toId)) {
               objects.delete(key);
             }
           });
 
-          setSelectedObjectId(null);
-          setShowColorPicker(false);
+          applySelection([]);
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId, editingObjectId, yDoc]);
+    // Capture phase ensures board shortcuts still fire when nested components
+    // attach their own key handlers.
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [selectedObjectIds, editingObjectId, yDoc, boardObjects, objectLookup]);
 
   // Create sticky note on canvas click (when sticky tool is active)
   const handleStageClick = async (e: KonvaEventObject<MouseEvent>): Promise<void> => {
@@ -455,7 +988,8 @@ export function Canvas({ boardId }: CanvasProps) {
 
     // Switch back to select tool
     setSelectedTool('select');
-    setSelectedObjectId(newNote.id);
+    applySelection([newNote.id], newNote.id);
+    setShowColorPicker(true);
 
     console.log('[Canvas] Created sticky note:', newNote.id);
   };
@@ -490,39 +1024,204 @@ export function Canvas({ boardId }: CanvasProps) {
   };
 
   // Handle object selection (sticky notes + shapes + frames + connectors)
-  const handleSelectObject = (id: string): void => {
+  const handleSelectObject = (
+    id: string,
+    options?: { additive: boolean },
+  ): void => {
     if (selectedTool === 'connector') {
       handleConnectorObjectClick(id);
       return;
     }
-    if (!yDoc) return;
-    const objects = yDoc.getMap<BoardObject>('objects');
-    const obj = objects.get(id);
-    setSelectedObjectId(id);
-    setShowColorPicker(!!obj && obj.type !== 'line' && obj.type !== 'connector' && obj.type !== 'frame');
+
+    if (options?.additive) {
+      const currentlySelected = selectedObjectIdSet.has(id);
+      const nextIds = currentlySelected
+        ? selectedObjectIds.filter((selectedId) => selectedId !== id)
+        : [...selectedObjectIds, id];
+
+      applySelection(
+        nextIds,
+        currentlySelected && selectedObjectId === id
+          ? (nextIds.length > 0 ? nextIds[nextIds.length - 1] : null)
+          : id,
+      );
+      return;
+    }
+
+    applySelection([id], id);
+  };
+
+  const handleAICommandMetrics = (metrics: {
+    elapsedMs: number;
+    success: boolean;
+    objectsAffected: number;
+  }): void => {
+    if (!metrics.success || metrics.objectsAffected <= 0) return;
+    setAiPromptExecutionMs(metrics.elapsedMs);
+  };
+
+  const clearMultiDragSession = (): void => {
+    const session = multiDragSessionRef.current;
+    if (!session) return;
+    if (session.rafId !== null) {
+      window.cancelAnimationFrame(session.rafId);
+    }
+    setIsMultiDragActive(false);
+    multiDragSessionRef.current = null;
+  };
+
+  const flushMultiDragPreview = (): void => {
+    const session = multiDragSessionRef.current;
+    if (!session) return;
+
+    session.rafId = null;
+
+    const primaryPosition = session.pendingPrimaryPosition;
+    if (!primaryPosition) return;
+    session.pendingPrimaryPosition = null;
+
+    const dragDelta = computePrimaryDragDelta(
+      session.initialPositions,
+      session.primaryId,
+      primaryPosition,
+    );
+    if (!dragDelta) return;
+
+    for (const follower of session.followerNodes) {
+      follower.node.position({
+        x: follower.initialX + dragDelta.x,
+        y: follower.initialY + dragDelta.y,
+      });
+    }
+
+    const layer =
+      shapeRefs.current.get(session.primaryId)?.getLayer()
+      ?? session.followerNodes[0]?.node.getLayer();
+    layer?.batchDraw();
+  };
+
+  const handleObjectDragStart = (id: string): void => {
+    if (selectedObjectIds.length < 2 || !selectedObjectIdSet.has(id)) {
+      clearMultiDragSession();
+      return;
+    }
+
+    const movableIds = getMovableSelectionIds(selectedObjectIds, objectLookup);
+    if (movableIds.length < 2 || !movableIds.includes(id)) {
+      clearMultiDragSession();
+      return;
+    }
+
+    const initialPositions = new Map<string, { x: number; y: number }>();
+    for (const selectedId of movableIds) {
+      const object = objectLookup.get(selectedId);
+      if (!object) continue;
+      initialPositions.set(selectedId, { x: object.x, y: object.y });
+    }
+
+    const primaryInitial = initialPositions.get(id);
+    if (!primaryInitial) {
+      clearMultiDragSession();
+      return;
+    }
+
+    const followerNodes: Array<{ node: Konva.Node; initialX: number; initialY: number }> = [];
+    for (const selectedId of movableIds) {
+      if (selectedId === id) continue;
+      const node = shapeRefs.current.get(selectedId);
+      const initialPosition = initialPositions.get(selectedId);
+      if (!node || !initialPosition) continue;
+      followerNodes.push({
+        node,
+        initialX: initialPosition.x,
+        initialY: initialPosition.y,
+      });
+    }
+
+    multiDragSessionRef.current = {
+      primaryId: id,
+      movableIds,
+      initialPositions,
+      followerNodes,
+      pendingPrimaryPosition: primaryInitial,
+      rafId: null,
+    };
+    setIsMultiDragActive(true);
+  };
+
+  const handleObjectDragMove = (id: string, x: number, y: number): void => {
+    const session = multiDragSessionRef.current;
+    if (!session || session.primaryId !== id) return;
+
+    session.pendingPrimaryPosition = { x, y };
+    if (session.rafId !== null) return;
+    session.rafId = window.requestAnimationFrame(flushMultiDragPreview);
   };
 
   // Handle object drag end — update position in Yjs
   const handleObjectDragEnd = (id: string, x: number, y: number): void => {
-    if (!yDoc) return;
+    if (!yDoc) {
+      clearMultiDragSession();
+      return;
+    }
     const objects = yDoc.getMap<BoardObject>('objects');
+    const session = multiDragSessionRef.current;
+
+    if (session && session.primaryId === id) {
+      if (session.rafId !== null) {
+        window.cancelAnimationFrame(session.rafId);
+        session.rafId = null;
+      }
+      session.pendingPrimaryPosition = { x, y };
+      flushMultiDragPreview();
+
+      const dragDelta = computePrimaryDragDelta(
+        session.initialPositions,
+        id,
+        { x, y },
+      );
+      if (!dragDelta) {
+        clearMultiDragSession();
+        return;
+      }
+
+      const updates = buildMovedPositionUpdates(
+        session.movableIds,
+        session.initialPositions,
+        dragDelta,
+      );
+
+      yDoc.transact(() => {
+        updates.forEach((update) => {
+          updateObject(objects, update.id, { x: update.x, y: update.y });
+        });
+      });
+
+      clearMultiDragSession();
+      return;
+    }
+
     updateObject(objects, id, { x, y });
-    console.log('[Canvas] Updated position:', id, { x, y });
   };
 
-  // Attach/detach Transformer when the selected object changes
+  // Attach/detach Transformer when the selection changes.
+  // For now, resize/rotate handles stay in single-object mode.
   useEffect(() => {
     const tr = transformerRef.current;
     if (!tr) return;
 
+    const isSingleSelection = selectedObjectIds.length === 1;
     const selected = boardObjects.find((o) => o.id === selectedObjectId);
     // Lines and connectors don't get resize/rotate handles
     const excluded = !selected || selected.type === 'line' || selected.type === 'connector';
-    const node = selectedObjectId ? shapeRefs.current.get(selectedObjectId) : undefined;
+    const node =
+      isSingleSelection && selectedObjectId
+        ? shapeRefs.current.get(selectedObjectId)
+        : undefined;
 
     tr.nodes(node && !excluded ? [node] : []);
     tr.getLayer()?.batchDraw();
-  }, [selectedObjectId, boardObjects]);
+  }, [selectedObjectId, selectedObjectIds, boardObjects]);
 
   // Called by each object after the Transformer interaction ends
   const handleTransformEnd = (id: string): void => {
@@ -601,15 +1300,40 @@ export function Canvas({ boardId }: CanvasProps) {
   const handleMouseDown = (e: KonvaEventObject<MouseEvent>): void => {
     const stage = stageRef.current;
     if (!stage) return;
+    const isStageTarget = e.target === stage;
+
+    // Canvas interactions should relinquish focus from text inputs (e.g. AI bar)
+    // so keyboard shortcuts like Cmd/Ctrl+A apply to board objects.
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    // Shift+drag on empty canvas enters marquee selection mode.
+    if (selectedTool === 'select' && isStageTarget && e.evt.shiftKey) {
+      const pos = stage.getPointerPosition();
+      if (!pos) return;
+      const canvasX = (pos.x - stage.x()) / stage.scaleX();
+      const canvasY = (pos.y - stage.y()) / stage.scaleY();
+
+      stage.draggable(false);
+      setMarqueeSelection({
+        startX: canvasX,
+        startY: canvasY,
+        currentX: canvasX,
+        currentY: canvasY,
+        additive: e.evt.metaKey || e.evt.ctrlKey,
+      });
+      setShowColorPicker(false);
+      return;
+    }
 
     // Deselect when clicking empty canvas
-    if (e.target === e.target.getStage()) {
-      setSelectedObjectId(null);
-      setShowColorPicker(false);
+    if (isStageTarget) {
+      applySelection([]);
     }
 
     // Cancel connector flow on empty-canvas click
-    if (selectedTool === 'connector' && e.target === stage) {
+    if (selectedTool === 'connector' && isStageTarget) {
       setConnectingFrom(null);
     }
 
@@ -617,7 +1341,7 @@ export function Canvas({ boardId }: CanvasProps) {
     const shapeTool = selectedTool as string;
     if (
       (shapeTool === 'rectangle' || shapeTool === 'circle' || shapeTool === 'line' || shapeTool === 'frame') &&
-      e.target === stage
+      isStageTarget
     ) {
       const pos = stage.getPointerPosition();
       if (!pos) return;
@@ -640,6 +1364,37 @@ export function Canvas({ boardId }: CanvasProps) {
   const handleMouseUp = (): void => {
     const stage = stageRef.current;
     if (stage) stage.draggable(true); // always re-enable pan
+
+    if (marqueeSelection) {
+      const left = Math.min(marqueeSelection.startX, marqueeSelection.currentX);
+      const top = Math.min(marqueeSelection.startY, marqueeSelection.currentY);
+      const right = Math.max(marqueeSelection.startX, marqueeSelection.currentX);
+      const bottom = Math.max(marqueeSelection.startY, marqueeSelection.currentY);
+      const width = right - left;
+      const height = bottom - top;
+
+      if (width < 4 || height < 4) {
+        if (!marqueeSelection.additive) {
+          applySelection([]);
+        }
+        setMarqueeSelection(null);
+        return;
+      }
+
+      const intersectingIds = selectIntersectingObjectIds(boardObjects, {
+        left,
+        top,
+        right,
+        bottom,
+      });
+      const nextIds = marqueeSelection.additive
+        ? Array.from(new Set([...selectedObjectIds, ...intersectingIds]))
+        : intersectingIds;
+
+      applySelection(nextIds);
+      setMarqueeSelection(null);
+      return;
+    }
 
     if (!drawingShape || !yDoc) {
       setDrawingShape(null);
@@ -698,7 +1453,7 @@ export function Canvas({ boardId }: CanvasProps) {
 
     setDrawingShape(null);
     setSelectedTool('select');
-    setSelectedObjectId(newShape.id);
+    applySelection([newShape.id], newShape.id);
     setShowColorPicker(type !== 'line' && type !== 'frame');
 
     console.log(`[Canvas] Created ${type}:`, newShape.id);
@@ -714,7 +1469,7 @@ export function Canvas({ boardId }: CanvasProps) {
     : null;
 
   // Get selected object for color picker
-  const selectedObject = selectedObjectId
+  const selectedObject = selectedObjectIds.length === 1 && selectedObjectId
     ? boardObjects.find((obj) => obj.id === selectedObjectId)
     : null;
 
@@ -742,6 +1497,20 @@ export function Canvas({ boardId }: CanvasProps) {
             : 'Click the source object to start a connector'}
         </div>
       )}
+
+      {/* Live project performance targets panel */}
+      <PerformanceHUD
+        fps={fps}
+        objectSyncLatencyMs={objectSyncLatencyMs}
+        cursorSyncLatencyMs={cursorSyncLatencyMs}
+        zoomSpeedPercentPerSecond={zoomSpeedPercentPerSecond}
+        panDragFps={panDragFps}
+        aiPromptExecutionMs={aiPromptExecutionMs}
+        objectCount={boardObjects.length}
+        onlineUsers={onlineUsersCount}
+        yjsConnected={yjsConnected}
+        socketConnected={socketConnected}
+      />
 
       {/* Connection Status & Zoom indicator */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
@@ -782,6 +1551,7 @@ export function Canvas({ boardId }: CanvasProps) {
         height={dimensions.height}
         draggable
         onWheel={handleWheel}
+        onDragStart={handleStageDragStart}
         onDragEnd={handleDragEnd}
         onClick={handleStageClick}
         onMouseDown={handleMouseDown}
@@ -800,14 +1570,13 @@ export function Canvas({ boardId }: CanvasProps) {
           scale={zoom}
           offsetX={pan.x}
           offsetY={pan.y}
+          isPanning={isStagePanning}
         />
 
         {/* Main content layer */}
         <Layer>
           {/* 1. Frames — bottom, behind everything */}
-          {boardObjects
-            .filter((obj): obj is BoardObject => obj.type === 'frame')
-            .map((obj) => (
+          {layeredVisibleObjects.frames.map((obj) => (
               <Frame
                 key={obj.id}
                 ref={(node) => {
@@ -823,8 +1592,10 @@ export function Canvas({ boardId }: CanvasProps) {
                 title={String(obj.properties.title ?? 'Frame')}
                 fillColor={String(obj.properties.fillColor ?? 'rgba(219,234,254,0.25)')}
                 strokeColor={String(obj.properties.strokeColor ?? '#3b82f6')}
-                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
                 onSelect={handleSelectObject}
+                onDragStart={handleObjectDragStart}
+                onDragMove={handleObjectDragMove}
                 onDragEnd={handleObjectDragEnd}
                 onDoubleClick={handleDoubleClick}
                 onTransformEnd={handleTransformEnd}
@@ -832,9 +1603,7 @@ export function Canvas({ boardId }: CanvasProps) {
             ))}
 
           {/* 2. Connectors — above frames, below shapes */}
-          {boardObjects
-            .filter((obj): obj is BoardObject => obj.type === 'connector')
-            .map((obj) => (
+          {layeredVisibleObjects.connectors.map((obj) => (
               <Connector
                 key={obj.id}
                 id={obj.id}
@@ -842,19 +1611,14 @@ export function Canvas({ boardId }: CanvasProps) {
                 toId={String(obj.properties.toId ?? '')}
                 color={String(obj.properties.color ?? '#1d4ed8')}
                 strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
-                boardObjects={boardObjects}
-                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                objectLookup={objectLookup}
+                isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
                 onSelect={handleSelectObject}
               />
             ))}
 
           {/* 3. Shapes */}
-          {boardObjects
-            .filter(
-              (obj): obj is BoardObject =>
-                obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line',
-            )
-            .map((obj) => (
+          {layeredVisibleObjects.shapes.map((obj) => (
               <Shape
                 key={obj.id}
                 ref={(node) => {
@@ -873,8 +1637,11 @@ export function Canvas({ boardId }: CanvasProps) {
                 strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
                 x2={obj.properties.x2 !== undefined ? Number(obj.properties.x2) : undefined}
                 y2={obj.properties.y2 !== undefined ? Number(obj.properties.y2) : undefined}
-                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                reduceEffects={isStagePanning || (isMultiDragActive && selectedObjectIdSet.has(obj.id))}
                 onSelect={handleSelectObject}
+                onDragStart={handleObjectDragStart}
+                onDragMove={handleObjectDragMove}
                 onDragEnd={handleObjectDragEnd}
                 onTransformEnd={handleTransformEnd}
               />
@@ -895,6 +1662,7 @@ export function Canvas({ boardId }: CanvasProps) {
               x2={drawingShape.currentX}
               y2={drawingShape.currentY}
               isSelected={false}
+              reduceEffects={false}
               onSelect={() => {}}
               onDragEnd={() => {}}
             />
@@ -916,10 +1684,23 @@ export function Canvas({ boardId }: CanvasProps) {
             />
           )}
 
+          {/* 4b. Marquee selection rectangle (Shift + drag on empty canvas) */}
+          {marqueeSelection && (
+            <Rect
+              x={Math.min(marqueeSelection.startX, marqueeSelection.currentX)}
+              y={Math.min(marqueeSelection.startY, marqueeSelection.currentY)}
+              width={Math.abs(marqueeSelection.currentX - marqueeSelection.startX)}
+              height={Math.abs(marqueeSelection.currentY - marqueeSelection.startY)}
+              fill="rgba(59,130,246,0.12)"
+              stroke="#2563eb"
+              strokeWidth={1.5}
+              dash={[6, 4]}
+              listening={false}
+            />
+          )}
+
           {/* 5. Sticky notes — top */}
-          {boardObjects
-            .filter((obj) => obj.type === 'sticky_note')
-            .map((obj) => (
+          {layeredVisibleObjects.stickyNotes.map((obj) => (
               <StickyNote
                 key={obj.id}
                 ref={(node) => {
@@ -934,8 +1715,11 @@ export function Canvas({ boardId }: CanvasProps) {
                 rotation={obj.rotation}
                 text={String(obj.properties.text || '')}
                 color={String(obj.properties.color || '#ffeb3b')}
-                isSelected={obj.id === selectedObjectId && !editingObjectId}
+                isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                reduceEffects={isStagePanning || (isMultiDragActive && selectedObjectIdSet.has(obj.id))}
                 onSelect={handleSelectObject}
+                onDragStart={handleObjectDragStart}
+                onDragMove={handleObjectDragMove}
                 onDragEnd={handleObjectDragEnd}
                 onDoubleClick={handleDoubleClick}
                 onTransformEnd={handleTransformEnd}
@@ -960,6 +1744,7 @@ export function Canvas({ boardId }: CanvasProps) {
           <RemoteCursorsLayer
             socket={socket}
             currentUserId={sessionUserIdRef.current}
+            onLatencySample={handleCursorLatencySample}
           />
         )}
       </Stage>
@@ -1003,7 +1788,7 @@ export function Canvas({ boardId }: CanvasProps) {
       )}
 
       {/* AI Command Bar */}
-      <AICommandBar boardId={boardId} />
+      <AICommandBar boardId={boardId} onCommandMetrics={handleAICommandMetrics} />
 
       {/* Hidden board ID for testing */}
       <div className="sr-only" data-testid="board-id">

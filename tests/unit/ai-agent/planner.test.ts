@@ -110,4 +110,48 @@ describe('planComplexCommand', () => {
     const plan = planComplexCommand('Add one yellow sticky note at x 100 y 100');
     expect(plan).toBeNull();
   });
+
+  it('builds a deterministic bulk sticky-note plan for high-count generation commands', () => {
+    const plan = planComplexCommand('Generate 100 objects');
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(false);
+    expect(plan?.steps).toHaveLength(100);
+    expect((plan?.steps ?? []).every((step) => step.tool === 'createStickyNote')).toBe(true);
+  });
+
+  it('supports 1000-note deterministic bulk generation without truncation', () => {
+    const plan = planComplexCommand('Add 1000 green sticky notes');
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(false);
+    expect(plan?.steps).toHaveLength(1000);
+    expect((plan?.steps ?? []).every((step) => step.tool === 'createStickyNote')).toBe(true);
+  });
+
+  it('caps extremely large bulk generation requests at 5000 notes', () => {
+    const plan = planComplexCommand('Add 9999 sticky notes');
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(false);
+    expect(plan?.steps).toHaveLength(5000);
+  });
+
+  it('parses number-word bulk sticky-note commands into deterministic plans', () => {
+    const plan = planComplexCommand('Add fifty sticky notes for brainstorm ideas');
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(false);
+    expect(plan?.steps).toHaveLength(50);
+  });
+
+  it('treats "ones" phrasing as bulk sticky-note generation for consistency', () => {
+    const plan = planComplexCommand('Add 100 green ones afterwards');
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(false);
+    expect(plan?.steps).toHaveLength(100);
+    const colors = new Set((plan?.steps ?? []).map((step) => String(step.args.color)));
+    expect(colors).toEqual(new Set(['#a3e635']));
+  });
+
+  it('does not hijack explicit shape-creation commands as sticky-note bulk plans', () => {
+    const plan = planComplexCommand('Create 50 circles');
+    expect(plan).toBeNull();
+  });
 });
