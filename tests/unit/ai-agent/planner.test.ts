@@ -64,6 +64,20 @@ describe('planComplexCommand', () => {
     expect(colors.size).toBeGreaterThan(1);
   });
 
+  it('supports brainstorm template commands with deterministic seeded notes', () => {
+    const firstPass = planComplexCommand('Create a brainstorm board');
+    expect(firstPass).not.toBeNull();
+    expect(firstPass?.requiresBoardState).toBe(true);
+    expect(firstPass?.steps).toHaveLength(0);
+
+    const planned = planComplexCommand('Create a brainstorm board', makeScopedState([]));
+    expect(planned).not.toBeNull();
+    expect(planned?.requiresBoardState).toBe(false);
+
+    const stickySteps = (planned?.steps ?? []).filter((step) => step.tool === 'createStickyNote');
+    expect(stickySteps.length).toBeGreaterThanOrEqual(8);
+  });
+
   it('marks sticky-note grid arrangement as requiring board state before planning', () => {
     const plan = planComplexCommand('Arrange these sticky notes in a grid');
     expect(plan).not.toBeNull();

@@ -1,17 +1,26 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+
+function getSafeRedirectPath(nextParam: string | null): string {
+  if (!nextParam) return '/';
+  if (!nextParam.startsWith('/')) return '/';
+  if (nextParam.startsWith('//')) return '/';
+  return nextParam;
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const redirectPath = getSafeRedirectPath(searchParams.get('next'));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +39,7 @@ export default function LoginPage() {
         if (error) throw error;
 
         if (data.session) {
-          router.push('/');
+          router.push(redirectPath);
           router.refresh();
         } else {
           setMessage('Check your email for a confirmation link, then sign in.');
@@ -41,7 +50,7 @@ export default function LoginPage() {
           password,
         });
         if (error) throw error;
-        router.push('/');
+        router.push(redirectPath);
         router.refresh();
       }
     } catch (err) {
@@ -71,7 +80,7 @@ export default function LoginPage() {
                 type="email"
                 autoComplete="email"
                 required
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-black placeholder:text-gray-500 caret-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -86,7 +95,7 @@ export default function LoginPage() {
                 type="password"
                 autoComplete={isSignUp ? 'new-password' : 'current-password'}
                 required
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-black placeholder:text-gray-500 caret-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />

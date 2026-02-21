@@ -6,6 +6,11 @@ import {
   type LayoutRect,
 } from '@/lib/ai-agent/layout';
 import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
+import {
+  buildTemplateSeedDefinitions,
+  type TemplateId,
+  type TemplateSeedDefinition,
+} from '@/lib/templates/template-seeds';
 
 export interface PlannedToolStep {
   tool: string;
@@ -49,8 +54,6 @@ export interface PlanVerificationResult {
   issues: string[];
 }
 
-const RETRO_COLUMNS = ['What Went Well', "What Didn't", 'Action Items'] as const;
-const SWOT_COLUMNS = ['Strengths', 'Weaknesses', 'Opportunities', 'Threats'] as const;
 const STAGE_COLORS = ['#60a5fa', '#a3e635', '#c084fc', '#fb923c', '#f472b6'] as const;
 const MAX_BULK_STICKY_NOTES = 5000;
 const MIN_BULK_STICKY_NOTES_FAST_PATH = 10;
@@ -70,12 +73,6 @@ const COLOR_NAME_TO_HEX: Record<string, string> = {
   orange: '#fb923c',
   yellow: '#ffeb3b',
 };
-
-interface TemplateStepDefinition {
-  tool: 'createFrame' | 'createStickyNote';
-  args: Record<string, unknown>;
-  footprint: LayoutRect;
-}
 
 interface BulkStickyGenerationIntent {
   count: number;
@@ -362,7 +359,6 @@ function buildKanbanPlan(
 
   const targetStickyWidth = intent.shouldResizeStickies ? KANBAN_DEFAULT_STICKY_WIDTH : null;
   const targetStickyHeight = intent.shouldResizeStickies ? KANBAN_DEFAULT_STICKY_HEIGHT : null;
-  const stickyWidthForLayout = targetStickyWidth ?? Math.max(...stickyNotes.map((note) => note.width), 200);
   const stickyHeightForLayout = targetStickyHeight ?? Math.max(...stickyNotes.map((note) => note.height), 200);
 
   const rowsPerColumn = shouldArrange ? Math.ceil(stickyNotes.length / columnCount) : 3;
@@ -371,7 +367,7 @@ function buildKanbanPlan(
     56 + (rowsPerColumn * stickyHeightForLayout) + (Math.max(rowsPerColumn - 1, 0) * KANBAN_STICKY_GAP) + 32,
   );
 
-  const frameTemplate: TemplateStepDefinition[] = intent.columnTitles.map((title, index) => ({
+  const frameTemplate: TemplateSeedDefinition[] = intent.columnTitles.map((title, index) => ({
     tool: 'createFrame',
     args: {
       title,
@@ -474,23 +470,6 @@ function parseJourneyStageCount(command: string): number {
   return Math.min(parsed, 10);
 }
 
-function planColumnsFrameLayout(titles: readonly string[], startX: number, startY: number): PlannedToolStep[] {
-  const columnWidth = 320;
-  const columnHeight = 440;
-  const gap = 40;
-
-  return titles.map((title, index) => ({
-    tool: 'createFrame',
-    args: {
-      title,
-      x: startX + (index * (columnWidth + gap)),
-      y: startY,
-      width: columnWidth,
-      height: columnHeight,
-    },
-  }));
-}
-
 function toOccupiedRects(state: ScopedBoardState): LayoutRect[] {
   return state.objects.map((object) => ({
     x: object.x,
@@ -500,7 +479,7 @@ function toOccupiedRects(state: ScopedBoardState): LayoutRect[] {
   }));
 }
 
-function templateSize(items: TemplateStepDefinition[]): { width: number; height: number } {
+function templateSize(items: TemplateSeedDefinition[]): { width: number; height: number } {
   if (items.length === 0) {
     return { width: 0, height: 0 };
   }
@@ -510,7 +489,7 @@ function templateSize(items: TemplateStepDefinition[]): { width: number; height:
   return { width: maxRight, height: maxBottom };
 }
 
-function placeTemplate(items: TemplateStepDefinition[], state: ScopedBoardState): PlannedToolStep[] {
+function placeTemplate(items: TemplateSeedDefinition[], state: ScopedBoardState): PlannedToolStep[] {
   const origin = findNonOverlappingOrigin(
     toOccupiedRects(state),
     templateSize(items),
@@ -527,52 +506,21 @@ function placeTemplate(items: TemplateStepDefinition[], state: ScopedBoardState)
   }));
 }
 
-function buildSwotTemplate(): TemplateStepDefinition[] {
-  const frameWidth = 320;
-  const frameHeight = 300;
-  const gapX = 40;
-  const gapY = 40;
-  const headerColors = ['#bfdbfe', '#fecaca', '#d9f99d', '#f5d0fe'] as const;
+function planNamedTemplate(
+  templateId: Extract<TemplateId, 'swot' | 'retrospective' | 'brainstorm'>,
+  boardState?: ScopedBoardState,
+): ComplexCommandPlan {
+  if (!boardState) {
+    return { requiresBoardState: true, steps: [] };
+  }
 
-  return SWOT_COLUMNS.flatMap((title, index) => {
-    const column = index % 2;
-    const row = Math.floor(index / 2);
-    const frameX = column * (frameWidth + gapX);
-    const frameY = row * (frameHeight + gapY);
-
-    return [
-      {
-        tool: 'createFrame' as const,
-        args: {
-          title,
-          width: frameWidth,
-          height: frameHeight,
-        },
-        footprint: {
-          x: frameX,
-          y: frameY,
-          width: frameWidth,
-          height: frameHeight,
-        },
-      },
-      {
-        tool: 'createStickyNote' as const,
-        args: {
-          text: title,
-          color: headerColors[index],
-        },
-        footprint: {
-          x: frameX + 16,
-          y: frameY + 16,
-          width: 200,
-          height: 200,
-        },
-      },
-    ];
-  });
+  return {
+    requiresBoardState: false,
+    steps: placeTemplate(buildTemplateSeedDefinitions(templateId), boardState),
+  };
 }
 
-function buildUserJourneyTemplate(stageCount: number): TemplateStepDefinition[] {
+function buildUserJourneyTemplate(stageCount: number): TemplateSeedDefinition[] {
   const columnWidth = 240;
   const gap = 20;
   const detailColor = '#fde68a';
@@ -609,46 +557,6 @@ function buildUserJourneyTemplate(stageCount: number): TemplateStepDefinition[] 
       },
     ];
   }).flat();
-}
-
-function buildRetroTemplate(): TemplateStepDefinition[] {
-  const baseSteps = planColumnsFrameLayout(RETRO_COLUMNS, 0, 0);
-  const headerColors = ['#86efac', '#fca5a5', '#93c5fd'] as const;
-
-  return baseSteps.flatMap((step, index) => {
-    const frameX = Number(step.args.x ?? 0);
-    const frameY = Number(step.args.y ?? 0);
-    const title = String(step.args.title ?? RETRO_COLUMNS[index] ?? 'Column');
-    return [
-      {
-        tool: 'createFrame' as const,
-        args: {
-          title,
-          width: Number(step.args.width ?? 320),
-          height: Number(step.args.height ?? 440),
-        },
-        footprint: {
-          x: frameX,
-          y: frameY,
-          width: Number(step.args.width ?? 320),
-          height: Number(step.args.height ?? 440),
-        },
-      },
-      {
-        tool: 'createStickyNote' as const,
-        args: {
-          text: title,
-          color: headerColors[index % headerColors.length],
-        },
-        footprint: {
-          x: frameX + 16,
-          y: frameY + 16,
-          width: 200,
-          height: 200,
-        },
-      },
-    ];
-  });
 }
 
 function toLayoutInput(state: ScopedBoardState): LayoutObjectInput[] {
@@ -745,7 +653,7 @@ function planProsConsGrid(command: string, state?: ScopedBoardState): ComplexCom
     },
   );
 
-  const template: TemplateStepDefinition[] = positions.map((position, index) => {
+  const template: TemplateSeedDefinition[] = positions.map((position, index) => {
     const isPro = index < Math.ceil(total / 2);
     const label = isPro ? `Pro ${index + 1}` : `Con ${index - Math.ceil(total / 2) + 1}`;
 
@@ -917,13 +825,7 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
   }
 
   if (normalized.includes('create a swot analysis')) {
-    if (!boardState) {
-      return { requiresBoardState: true, steps: [] };
-    }
-    return {
-      requiresBoardState: false,
-      steps: placeTemplate(buildSwotTemplate(), boardState),
-    };
+    return planNamedTemplate('swot', boardState);
   }
 
   if (normalized.includes('user journey map')) {
@@ -938,13 +840,15 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
   }
 
   if (normalized.includes('retrospective board')) {
-    if (!boardState) {
-      return { requiresBoardState: true, steps: [] };
-    }
-    return {
-      requiresBoardState: false,
-      steps: placeTemplate(buildRetroTemplate(), boardState),
-    };
+    return planNamedTemplate('retrospective', boardState);
+  }
+
+  if (
+    normalized.includes('brainstorm board')
+    || normalized.includes('brainstorm template')
+    || normalized.includes('create a brainstorm')
+  ) {
+    return planNamedTemplate('brainstorm', boardState);
   }
 
   if (normalized.includes('grid of sticky notes') && normalized.includes('pros and cons')) {

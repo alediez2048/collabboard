@@ -35,7 +35,10 @@ yarn-error.log*
 !.env.example
 
 # Supabase local development
-/supabase/
+/supabase/*
+!/supabase/migrations/
+/supabase/migrations/*
+!/supabase/migrations/board_user_state.sql
 
 # Playwright
 /test-results/

@@ -1,11 +1,12 @@
 import Link from 'next/link';
-import type { Board } from '@/types/board';
+import type { DashboardBoard } from '@/types/board';
 import { BoardNameEditable } from '@/components/board-name-editable';
 import { DeleteBoardButton } from '@/components/delete-board-button';
+import { DashboardStarButton } from '@/components/dashboard/DashboardStarButton';
 import type { ReactElement } from 'react';
 
 interface DashboardBoardCardProps {
-  board: Board;
+  board: DashboardBoard;
   isOwnedByCurrentUser: boolean;
 }
 
@@ -28,7 +29,10 @@ export function DashboardBoardCard({
         data-testid={`board-card-${board.id}`}
         className="group relative rounded-lg border border-blue-100 bg-white shadow-sm transition-shadow hover:shadow-md"
       >
-        <Link href={`/board/${board.id}`} className="block p-6">
+        <div className="absolute right-4 top-4 z-10">
+          <DashboardStarButton boardId={board.id} initialIsStarred={board.is_starred} />
+        </div>
+        <Link href={`/board/${board.id}`} className="block p-6 pr-16">
           <div className="mb-2 flex items-start justify-between">
             <h3 className="pr-8 text-xl font-semibold text-gray-900">{board.name}</h3>
             <span className="ml-2 shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-600">
@@ -49,7 +53,7 @@ export function DashboardBoardCard({
       data-testid={`board-card-${board.id}`}
       className="group relative rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
     >
-      <div className="p-6 pr-12">
+      <div className="p-6 pr-24">
         <BoardNameEditable boardId={board.id} initialName={board.name} />
         <p className="text-sm text-gray-500">Created {formatBoardDate(board.created_at)}</p>
         <Link
@@ -59,7 +63,8 @@ export function DashboardBoardCard({
           Open board
         </Link>
       </div>
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-4 top-4 flex items-center gap-2">
+        <DashboardStarButton boardId={board.id} initialIsStarred={board.is_starred} />
         <DeleteBoardButton boardId={board.id} boardName={board.name} />
       </div>
     </div>

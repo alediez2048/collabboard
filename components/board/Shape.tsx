@@ -1,12 +1,12 @@
 'use client';
 
 import { forwardRef, useEffect, useRef } from 'react';
-import { Group, Rect, Circle, Line } from 'react-konva';
+import { Group, Rect, Circle, Line, Text as KonvaText } from 'react-konva';
 import Konva from 'konva';
 
 interface ShapeProps {
   id: string;
-  type: 'rectangle' | 'circle' | 'line';
+  type: 'rectangle' | 'circle' | 'line' | 'text';
   x: number;
   y: number;
   width: number;
@@ -17,6 +17,9 @@ interface ShapeProps {
   x2?: number;
   y2?: number;
   rotation?: number;
+  textContent?: string;
+  textColor?: string;
+  fontSize?: number;
   isSelected: boolean;
   reduceEffects?: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
@@ -24,6 +27,7 @@ interface ShapeProps {
   onDragMove?: (id: string, x: number, y: number) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onTransformEnd?: (id: string) => void;
+  onDoubleClick?: (id: string) => void;
 }
 
 export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
@@ -40,6 +44,9 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
     x2,
     y2,
     rotation,
+    textContent,
+    textColor,
+    fontSize,
     isSelected,
     reduceEffects,
     onSelect,
@@ -47,6 +54,7 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
     onDragMove,
     onDragEnd,
     onTransformEnd,
+    onDoubleClick,
   },
   ref,
 ): React.ReactElement {
@@ -115,6 +123,8 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
+        onDblClick={() => onDoubleClick?.(id)}
+        onDblTap={() => onDoubleClick?.(id)}
         onTransformEnd={() => onTransformEnd?.(id)}
       >
         {/* Wider transparent hit area so the line is easier to click */}
@@ -166,6 +176,8 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
+        onDblClick={() => onDoubleClick?.(id)}
+        onDblTap={() => onDoubleClick?.(id)}
         onTransformEnd={() => onTransformEnd?.(id)}
       >
         <Circle
@@ -180,6 +192,60 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 0, y: 3 }}
           shadowOpacity={reduceEffects ? 0 : 0.3}
           perfectDrawEnabled={false}
+        />
+      </Group>
+    );
+  }
+
+  if (type === 'text') {
+    return (
+      <Group
+        ref={mergeRef}
+        x={x}
+        y={y}
+        rotation={rotation ?? 0}
+        draggable
+        onClick={(e) =>
+          onSelect(id, {
+            additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
+          })
+        }
+        onTap={() => onSelect(id)}
+        onDblClick={() => onDoubleClick?.(id)}
+        onDblTap={() => onDoubleClick?.(id)}
+        onDragStart={() => onDragStart?.(id)}
+        onDragMove={(e) => {
+          const node = e.target;
+          onDragMove?.(id, node.x(), node.y());
+        }}
+        onDragEnd={(e) => {
+          const node = e.target;
+          onDragEnd(id, node.x(), node.y());
+        }}
+        onTransformEnd={() => onTransformEnd?.(id)}
+      >
+        <Rect
+          width={width}
+          height={height}
+          fill="rgba(255,255,255,0.01)"
+          stroke={isSelected ? '#2563eb' : 'transparent'}
+          strokeWidth={isSelected ? 2 : 1}
+          cornerRadius={4}
+          perfectDrawEnabled={false}
+        />
+        <KonvaText
+          text={textContent ?? ''}
+          x={6}
+          y={4}
+          width={Math.max(width - 12, 24)}
+          height={Math.max(height - 8, 20)}
+          fontSize={fontSize ?? 28}
+          fontFamily="Inter, system-ui, -apple-system, sans-serif"
+          fill={textColor ?? '#1f2937'}
+          align="left"
+          verticalAlign="top"
+          wrap="word"
+          listening={false}
         />
       </Group>
     );
@@ -208,6 +274,8 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         const node = e.target;
         onDragEnd(id, node.x(), node.y());
       }}
+      onDblClick={() => onDoubleClick?.(id)}
+      onDblTap={() => onDoubleClick?.(id)}
       onTransformEnd={() => onTransformEnd?.(id)}
     >
       <Rect

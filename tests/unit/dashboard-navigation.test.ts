@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DASHBOARD_SECTIONS,
   getDashboardSectionMeta,
+  parseDashboardSearchQuery,
   parseDashboardSection,
   type DashboardSection,
 } from '@/lib/dashboard/navigation';
@@ -22,6 +23,14 @@ describe('dashboard navigation helpers', () => {
   it('uses the first string when query param is an array', () => {
     expect(parseDashboardSection(['recent', 'home'])).toBe('recent');
     expect(parseDashboardSection(['invalid', 'home'])).toBe('home');
+  });
+
+  it('normalizes dashboard search query values', () => {
+    expect(parseDashboardSearchQuery(undefined)).toBe('');
+    expect(parseDashboardSearchQuery('')).toBe('');
+    expect(parseDashboardSearchQuery('   ')).toBe('');
+    expect(parseDashboardSearchQuery('  Product  ')).toBe('Product');
+    expect(parseDashboardSearchQuery([' Roadmap ', 'Ignored'])).toBe('Roadmap');
   });
 
   it('exports all expected sections and metadata', () => {

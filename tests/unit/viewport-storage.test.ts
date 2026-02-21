@@ -84,9 +84,9 @@ describe('loadViewport — fallback behaviour', () => {
 });
 
 describe('loadViewport — zoom clamping', () => {
-  it('clamps zoom below 0.1 to 0.1', () => {
+  it('clamps zoom below 0.01 to 0.01', () => {
     saveViewport('board-clamp', { zoom: 0.001, pan: { x: 0, y: 0 } });
-    expect(loadViewport('board-clamp').zoom).toBe(0.1);
+    expect(loadViewport('board-clamp').zoom).toBe(0.01);
   });
 
   it('clamps zoom above 10 to 10', () => {

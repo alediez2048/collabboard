@@ -320,7 +320,8 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       } else if (
         object.type === 'rectangle' ||
         object.type === 'circle' ||
-        object.type === 'line'
+        object.type === 'line' ||
+        object.type === 'text'
       ) {
         shapes.push(object);
       }
@@ -957,7 +958,8 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     !!object &&
     object.type !== 'line' &&
     object.type !== 'connector' &&
-    object.type !== 'frame';
+    object.type !== 'frame' &&
+    object.type !== 'text';
 
   const applySelection = (
     objectIds: string[],
@@ -1053,10 +1055,11 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, []);
 
-  // Create sticky note on canvas click (when sticky tool is active)
+  // Create single-click objects (sticky note / text) on empty canvas
   const handleStageClick = async (e: KonvaEventObject<MouseEvent>): Promise<void> => {
     const stage = stageRef.current;
-    if (!stage || !yDoc || selectedTool !== 'sticky') return;
+    const canCreateSingleClickObject = selectedTool === 'sticky' || selectedTool === 'text';
+    if (!stage || !yDoc || !canCreateSingleClickObject) return;
 
     // Only create if clicking on the stage itself (not on an object)
     if (e.target !== stage) return;
@@ -1076,33 +1079,61 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
     if (!session) return;
 
-    // Create new sticky note
-    const newNote: BoardObject = {
+    const objects = yDoc.getMap<BoardObject>('objects');
+    if (selectedTool === 'sticky') {
+      const newNote: BoardObject = {
+        id: crypto.randomUUID(),
+        type: 'sticky_note',
+        x: canvasX,
+        y: canvasY,
+        width: 200,
+        height: 200,
+        rotation: 0,
+        zIndex: boardObjects.length + 1,
+        properties: {
+          text: '',
+          color: '#ffeb3b', // default yellow
+        },
+        createdBy: session.user.id,
+        updatedAt: new Date().toISOString(),
+      };
+
+      addObject(objects, newNote);
+
+      // Switch back to select tool
+      setSelectedTool('select');
+      applySelection([newNote.id], newNote.id);
+      setShowColorPicker(true);
+
+      console.log('[Canvas] Created sticky note:', newNote.id);
+      return;
+    }
+
+    const newText: BoardObject = {
       id: crypto.randomUUID(),
-      type: 'sticky_note',
+      type: 'text',
       x: canvasX,
       y: canvasY,
-      width: 200,
-      height: 200,
+      width: 240,
+      height: 56,
       rotation: 0,
       zIndex: boardObjects.length + 1,
       properties: {
         text: '',
-        color: '#ffeb3b', // default yellow
+        textColor: '#1f2937',
+        fontSize: 28,
       },
       createdBy: session.user.id,
       updatedAt: new Date().toISOString(),
     };
 
-    const objects = yDoc.getMap<BoardObject>('objects');
-    addObject(objects, newNote);
-
-    // Switch back to select tool
+    addObject(objects, newText);
     setSelectedTool('select');
-    applySelection([newNote.id], newNote.id);
-    setShowColorPicker(true);
+    applySelection([newText.id], newText.id);
+    setShowColorPicker(false);
+    setEditingObjectId(newText.id);
 
-    console.log('[Canvas] Created sticky note:', newNote.id);
+    console.log('[Canvas] Created text object:', newText.id);
   };
 
   // Handle connector two-click draw: first click = set fromId, second click = create connector
@@ -1677,7 +1708,15 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         y={pan.y}
         scaleX={zoom}
         scaleY={zoom}
-        style={{ cursor: ['rectangle', 'circle', 'line', 'frame'].includes(selectedTool) ? 'crosshair' : selectedTool === 'connector' ? 'cell' : 'default' }}
+        style={{
+          cursor: ['rectangle', 'circle', 'line', 'frame'].includes(selectedTool)
+            ? 'crosshair'
+            : selectedTool === 'connector'
+              ? 'cell'
+              : selectedTool === 'text'
+                ? 'text'
+                : 'default',
+        }}
       >
         {/* Grid background */}
         <Grid
@@ -1743,7 +1782,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                   else shapeRefs.current.delete(obj.id);
                 }}
                 id={obj.id}
-                type={obj.type as 'rectangle' | 'circle' | 'line'}
+                type={obj.type as 'rectangle' | 'circle' | 'line' | 'text'}
                 x={obj.x}
                 y={obj.y}
                 width={obj.width}
@@ -1754,6 +1793,9 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                 strokeWidth={Number(obj.properties.strokeWidth ?? 2)}
                 x2={obj.properties.x2 !== undefined ? Number(obj.properties.x2) : undefined}
                 y2={obj.properties.y2 !== undefined ? Number(obj.properties.y2) : undefined}
+                textContent={obj.type === 'text' ? String(obj.properties.text ?? '') : undefined}
+                textColor={obj.type === 'text' ? String(obj.properties.textColor ?? '#1f2937') : undefined}
+                fontSize={obj.type === 'text' ? Number(obj.properties.fontSize ?? 28) : undefined}
                 isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
                 reduceEffects={simplifyDenseInteractionRendering}
                 onSelect={handleSelectObject}
@@ -1761,6 +1803,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                 onDragMove={handleObjectDragMove}
                 onDragEnd={handleObjectDragEnd}
                 onTransformEnd={handleTransformEnd}
+                onDoubleClick={obj.type === 'text' ? handleDoubleClick : undefined}
               />
             ))}
 

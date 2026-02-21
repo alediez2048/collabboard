@@ -1832,12 +1832,142 @@ Automated benchmark (`tests/unit/dense-board-benchmark.test.ts`) compares prior 
 
 ---
 
+## TICKET-18: Board Discovery Metadata (Home / Recent / Starred + Search) (Completed)
+
+### 🧠 Plain-English Summary
+- **What this ticket delivered:** real dashboard discovery behavior backed by per-user metadata instead of section scaffolding.
+- **Why it mattered:** Home/Recent/Starred now represent meaningful user workflows, with persistent star state and recent activity tracking.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 20, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered
+- ✅ Added `board_user_state` migration with per-user fields:
+  - `board_id`, `user_id`, `is_starred`, `last_opened_at`, `updated_at`
+  - per-user RLS policies and query indexes for starred/recent paths
+- ✅ Added dashboard discovery query/model layer:
+  - `lib/dashboard/discovery.ts`
+  - section-aware list construction (Home/Recent/Starred)
+  - case-insensitive search filtering
+- ✅ Added persistent star/unstar flow:
+  - `components/dashboard/DashboardStarButton.tsx` (optimistic toggle + rollback on API failure)
+  - `app/api/boards/[id]/star/route.ts` (auth + validation + persistence)
+- ✅ Added recent tracking:
+  - board open now upserts `last_opened_at` for current user in `app/board/[id]/page.tsx`
+- ✅ Updated dashboard UX:
+  - sidebar search form + clear flow
+  - section content now uses real empty states and no scaffold note
+
+### ✅ Testing & Verification
+- ✅ TDD flow followed (new failing tests first, then implementation):
+  - `tests/unit/dashboard-discovery.test.ts`
+  - `tests/integration/dashboard/star-route.test.ts`
+  - updated `tests/unit/dashboard-navigation.test.ts`
+  - updated `tests/unit/dashboard-section-content.test.tsx`
+- ✅ Full regression:
+  - `npm test` → **253/253 passing**
+  - `npm run build` → passed
+  - `npm run lint` → passed with pre-existing non-blocking warnings only
+- ⚠️ E2E note:
+  - `CI= npm run test:e2e -- tests/e2e/board.spec.ts` currently fails for new Recent/Starred scenarios in this environment because `public.board_user_state` is not present yet.
+  - Existing migration file was added (`supabase/migrations/board_user_state.sql`); apply it to the target Supabase project, then rerun e2e.
+
+---
+
+## TICKET-19: Quick-Start Templates + Deterministic Board Seeding (Completed)
+
+### 🧠 Plain-English Summary
+- **What this ticket delivered:** one-click template creation from the Home dashboard, with deterministic seeded structures for Kanban, SWOT, Brainstorm, and Retrospective.
+- **Why it mattered:** users can now start from structured layouts instantly, without typing AI commands, while keeping all object writes on the existing Yjs realtime path.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 20, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered
+- ✅ Added shared deterministic template module:
+  - `lib/templates/template-seeds.ts`
+  - typed template catalog + IDs (`kanban`, `swot`, `brainstorm`, `retrospective`)
+  - deterministic seeded tool-step builders
+- ✅ Refactored planner template reuse:
+  - `lib/ai-agent/planner.ts` now consumes shared template definitions for template-style plans
+  - added brainstorm template command support through deterministic planner path
+- ✅ Added template creation API:
+  - `POST /api/boards/template` at `app/api/boards/template/route.ts`
+  - authenticated board creation + seed execution via `executeToolCalls` (Yjs bridge path)
+  - rollback delete on seed failure
+- ✅ Added Home template gallery UX:
+  - `components/dashboard/DashboardTemplateGallery.tsx`
+  - rendered on Home section in `components/dashboard/DashboardSectionContent.tsx`
+  - card click creates board from template and navigates to board page
+
+### ✅ Testing & Verification
+- ✅ TDD sequence followed (tests first, fail, implement, pass):
+  - `tests/unit/template-seeds.test.ts` (new)
+  - `tests/integration/dashboard/template-create-route.test.ts` (new)
+  - `tests/unit/ai-agent/planner.test.ts` (updated)
+  - `tests/unit/dashboard-section-content.test.tsx` (updated)
+  - `tests/e2e/board.spec.ts` (updated with template creation smoke)
+- ✅ Validation runs:
+  - `npm run lint` → pass (warnings only in unrelated pre-existing files)
+  - `npm test` → **264/264 passing**
+  - `npm run build` → pass
+  - `CI= npm run test:e2e -- tests/e2e/board.spec.ts` → **9/9 passing**
+- ⚠️ Environment note:
+  - full `CI= npm run test:e2e` still intermittently hits pre-existing auth/signup timing instability in `tests/e2e/auth.spec.ts`.
+
+---
+
+## Post-Ticket Stabilization: Auth + Canvas Authoring Hotfixes (Completed)
+
+### 🧠 Plain-English Summary
+- **What this pass delivered:** focused reliability and authoring fixes across board collaboration flows and core canvas tooling after the TICKET-19 baseline.
+- **Why it mattered:** invitation onboarding and in-canvas creation needed predictable behavior for real user workflows (join links, text insertion, deep zoom, deletion reliability).
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 21, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered
+- ✅ Fixed board object deletion reliability in canvas keyboard flow:
+  - stabilized delete/select-all keyboard handlers against stale closure state
+  - hardened Yjs observer object-index rebuild behavior to avoid dev-mode reappearance edge cases
+- ✅ Fixed share-link invite auth return-path behavior:
+  - middleware now redirects unauthenticated `/board/*` requests to `/login?next=...`
+  - login now safely honors internal `next` redirect targets on successful auth
+  - added invite-session E2E coverage (`tests/e2e/share-invite.spec.ts`)
+- ✅ Expanded infinite board minimum zoom from **10%** to **1%**:
+  - updated zoom clamp defaults in `lib/utils/zoom-interaction.ts`
+  - updated persisted viewport clamp in `lib/utils/viewport-storage.ts`
+- ✅ Restored/expanded text tool functionality:
+  - clicking text tool + canvas now creates a text object
+  - immediate inline edit mode opens for newly created text
+  - text objects now render in shape layer and support reopen-on-double-click behavior
+  - added dedicated E2E coverage (`tests/e2e/text-tool.spec.ts`)
+- ✅ Added planning asset for next authoring expansion:
+  - created `documentation/tickets/TICKET-18.1-PRIMER.md`
+  - registered TICKET-18.1 in `documentation/tickets/TICKETS.md`
+
+### ✅ Testing & Verification
+- ✅ Deletion regression: `CI= npm run test:e2e -- --grep "deletes selected canvas objects with keyboard shortcuts" --project=chromium`
+- ✅ Share invite flow: `CI= npm run test:e2e -- tests/e2e/share-invite.spec.ts --project=chromium`
+- ✅ Route protection assertion update: `CI= npm run test:e2e -- tests/e2e/auth.spec.ts --grep "protects board routes" --project=chromium`
+- ✅ Text tool flow: `CI= npm run test:e2e -- tests/e2e/text-tool.spec.ts --project=chromium`
+- ✅ Zoom clamp unit coverage: `npm run test -- tests/unit/zoom-interaction.test.ts tests/unit/viewport-storage.test.ts`
+- ✅ Lint checks on changed files reported no new linter errors.
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 17/17 tracked tickets (through TICKET-16)
+- **Tickets Completed:** 19/23 tracked tickets (through TICKET-19 + stabilization pass)
 - **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ Full regression passing (`npm test` + `npm run test:e2e`)
+- **Tests:** ✅ Unit/integration and board e2e regression passing (`npm test` + `CI= npm run test:e2e -- tests/e2e/board.spec.ts`)
 - **Lint:** ✅ Zero errors (warnings only)
 
 ### ✅ Current Status
@@ -1862,9 +1992,12 @@ Automated benchmark (`tests/unit/dense-board-benchmark.test.ts`) compares prior 
 15. ✅ LLM Observability + Dashboard Readiness (dual tracing fan-out + route/executor/bridge telemetry coverage)
 16. ✅ Board Management + Final Polish (inline rename, confirm-delete UX, board header/back context, share feedback hardening)
 17. ✅ High-Object Performance Deep Dive (incremental object patching, dense-board stress coverage, and benchmark-backed improvements)
+18. ✅ Board Discovery Metadata (Home/Recent/Starred/search with per-user state and persistence)
+19. ✅ Quick-Start Templates + Deterministic Board Seeding (Home template gallery + API seeding through Yjs path)
 
 ### 📈 Next Priorities
-1. **Final submission packaging:** social post, AI interview walkthrough prep, and portal upload bundle
+1. **Functional expansion:** TICKET-18.1, TICKET-20, TICKET-21, and TICKET-22 backlog execution
+2. **Final submission packaging:** social post, AI interview walkthrough prep, and portal upload bundle
 
 ### 💡 Key Learnings So Far
 1. **TDD Works**: Writing tests first catches issues early

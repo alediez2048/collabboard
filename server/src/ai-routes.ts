@@ -11,7 +11,7 @@
 import { Router, Request, Response } from 'express';
 import * as Y from 'yjs';
 import { getDoc } from './yjs-server';
-import { loadSnapshot } from './persistence';
+import { loadSnapshot, saveSnapshot } from './persistence';
 
 const router = Router();
 
@@ -81,19 +81,28 @@ function withTracePrefix(traceId: string): string {
 
 // ── Helper: get or load a Yjs doc ─────────────────────────────────────────────
 
-async function getOrLoadDoc(boardId: string): Promise<Y.Doc | null> {
-  // Try the live in-memory doc first (board has active WebSocket clients)
-  let doc = getDoc(boardId);
-  if (doc) return doc;
+interface LoadedDocResult {
+  doc: Y.Doc;
+  shouldPersistImmediately: boolean;
+}
 
-  // Board has no active clients — load from snapshot into a temporary doc
-  doc = new Y.Doc();
+async function getOrLoadDoc(boardId: string): Promise<LoadedDocResult> {
+  // Try the live in-memory doc first (board has active WebSocket clients)
+  const liveDoc = getDoc(boardId);
+  if (liveDoc) {
+    return { doc: liveDoc, shouldPersistImmediately: false };
+  }
+
+  // Board has no active clients — load from snapshot into a temporary doc.
+  // Mutations to this doc must be persisted immediately because it is not
+  // attached to the websocket room lifecycle/debounced save handlers.
+  const doc = new Y.Doc();
   const found = await loadSnapshot(boardId, doc);
   if (!found) {
-    // New board with no snapshot yet — still return an empty doc, mutations will create objects
-    return doc;
+    // New board with no snapshot yet — still return an empty doc, mutations will create objects.
+    return { doc, shouldPersistImmediately: true };
   }
-  return doc;
+  return { doc, shouldPersistImmediately: true };
 }
 
 // ── Yjs mutation helpers ───────────────────────────────────────────────────────
@@ -289,11 +298,7 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const doc = await getOrLoadDoc(boardId);
-    if (!doc) {
-      res.status(404).json({ success: false, error: 'Board not found' });
-      return;
-    }
+    const { doc, shouldPersistImmediately } = await getOrLoadDoc(boardId);
 
     const objects = doc.getMap<BoardObject>('objects');
     const result = applyMutation(objects, action, userId, objects.size + 1);
@@ -301,6 +306,10 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
     if (result.error) {
       res.json({ success: false, affectedObjectIds: [], error: result.error });
       return;
+    }
+
+    if (shouldPersistImmediately) {
+      await saveSnapshot(boardId, doc);
     }
 
     console.log(`[AI Bridge] ${withTracePrefix(traceId)}${action.tool} on board ${boardId} → ${result.affectedObjectIds.join(', ')}`);
@@ -328,11 +337,7 @@ router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> 
   }
 
   try {
-    const doc = await getOrLoadDoc(boardId);
-    if (!doc) {
-      res.status(404).json({ success: false, error: 'Board not found' });
-      return;
-    }
+    const { doc, shouldPersistImmediately } = await getOrLoadDoc(boardId);
 
     const objects = doc.getMap<BoardObject>('objects');
     let nextZIndex = objects.size + 1;
@@ -366,6 +371,10 @@ router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    if (shouldPersistImmediately) {
+      await saveSnapshot(boardId, doc);
+    }
+
     const affectedObjectIds = results.flatMap((result) => result.affectedObjectIds);
     res.json({
       success: true,
@@ -394,11 +403,7 @@ router.post('/board-state', async (req: Request, res: Response): Promise<void> =
   }
 
   try {
-    const doc = await getOrLoadDoc(boardId);
-    if (!doc) {
-      res.json({ totalObjects: 0, returnedCount: 0, objects: [] });
-      return;
-    }
+    const { doc } = await getOrLoadDoc(boardId);
 
     const objects = doc.getMap<BoardObject>('objects');
     const allObjects = getAllObjects(objects);

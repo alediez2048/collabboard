@@ -28,6 +28,23 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
   // Board accessible — render it
   if (board) {
+    const openedAt = new Date().toISOString();
+    const { error: stateError } = await supabase
+      .from('board_user_state')
+      .upsert(
+        {
+          board_id: board.id,
+          user_id: user.id,
+          last_opened_at: openedAt,
+          updated_at: openedAt,
+        },
+        { onConflict: 'board_id,user_id' },
+      );
+
+    if (stateError) {
+      console.error(`[Board Discovery] Failed to record recent activity for ${board.id}:`, stateError);
+    }
+
     return <BoardCanvas boardId={board.id} boardName={board.name} />;
   }
 

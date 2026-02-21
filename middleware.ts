@@ -37,7 +37,10 @@ export async function middleware(request: NextRequest) {
 
   // Protect /board/* routes - redirect to login if not authenticated
   if (!user && request.nextUrl.pathname.startsWith('/board')) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    const loginUrl = new URL('/login', request.url);
+    const nextPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+    loginUrl.searchParams.set('next', nextPath);
+    return NextResponse.redirect(loginUrl);
   }
 
   return response;

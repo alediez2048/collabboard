@@ -19,7 +19,7 @@ export interface PointerAnchoredWheelZoomInput {
   maxZoom?: number;
 }
 
-export const MIN_ZOOM = 0.1;
+export const MIN_ZOOM = 0.01;
 export const MAX_ZOOM = 10;
 export const DEFAULT_WHEEL_SENSITIVITY = 0.0005;
 

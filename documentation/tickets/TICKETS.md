@@ -33,8 +33,9 @@
 ## Functional Expansion Backlog (Reference-Informed)
 
 - [ ] **TICKET-17** — Dashboard Information Architecture + Navigation Foundation (~2.5–3 hrs)
-- [ ] **TICKET-18** — Board Discovery Metadata: Home / Recent / Starred + Search (~3 hrs)
-- [ ] **TICKET-19** — Quick-Start Templates + Deterministic Board Seeding (~3–4 hrs)
+- [x] **TICKET-18** — Board Discovery Metadata: Home / Recent / Starred + Search (~3 hrs) ✅ Completed Feb 20
+- [ ] **TICKET-18.1** — Toolbar Authoring Expansion (Text Styling + Select/Hand + Pencil/Eraser + Undo/Redo) (~4–6 hrs)
+- [x] **TICKET-19** — Quick-Start Templates + Deterministic Board Seeding (~3–4 hrs) ✅ Completed Feb 20
 - [ ] **TICKET-20** — Board Preview Cards + Snapshot Thumbnails + View Toggle (~3 hrs)
 - [ ] **TICKET-21** — Workspace Productivity Controls (Undo/Redo + Clear + Header/Rail Refinement) (~3–4 hrs)
 - [ ] **TICKET-22** — Canvas Comment Pins + Threaded Discussions (~3–4 hrs)
@@ -83,13 +84,28 @@ _Update this file after completing each ticket. Add a one-line note if you devia
 - 📌 Primer created: `documentation/tickets/TICKET-17-PRIMER.md`
 - 🎯 Focus: deliver a stronger dashboard information architecture and navigation foundation (sidebar + top controls + section scaffolding), informed by reference workflows (not visual parity)
 
-### TICKET-18 (Planned Feb 20, 2026)
+### TICKET-18 (Completed Feb 20, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-18-PRIMER.md`
 - 🎯 Focus: implement per-user board discovery metadata and behavior for Home/Recent/Starred tabs with real search/filter support
+- ✅ Added per-user `board_user_state` model + migration (`is_starred`, `last_opened_at`, `updated_at`) with RLS + indexes
+- ✅ Added real Home/Recent/Starred filtering + dashboard search query wiring
+- ✅ Added optimistic star/unstar control + authenticated `PATCH /api/boards/[id]/star`
+- ✅ Added recent tracking on board open (`app/board/[id]/page.tsx` upsert flow)
+- ✅ Tests: dashboard unit/integration coverage added and full Vitest suite green (`npm test`)
 
-### TICKET-19 (Planned Feb 20, 2026)
+### TICKET-18.1 (Planned Feb 21, 2026)
+- 📌 Primer created: `documentation/tickets/TICKET-18.1-PRIMER.md`
+- 🎯 Focus: expand toolbar authoring depth (text styling, select/hand mode behavior, pencil/eraser workflows, undo/redo controls, sticky-note tooling improvements)
+
+### TICKET-19 (Completed Feb 20, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-19-PRIMER.md`
 - 🎯 Focus: add quick-start template cards (Kanban/SWOT/Brainstorm/Retro) with deterministic seeded board creation through the existing Yjs sync path
+- ✅ Added reusable deterministic template module (`lib/templates/template-seeds.ts`) and refactored planner template reuse
+- ✅ Added authenticated `POST /api/boards/template` route (board create + Yjs seeding via executor + rollback on seed failure)
+- ✅ Added Home dashboard \"Start from Template\" gallery and one-click template creation UX
+- ✅ Added tests: template unit coverage, template API integration route coverage, planner coverage updates, and board e2e template smoke
+- ✅ Verification: `npm run lint`, `npm test`, `npm run build`, `CI= npm run test:e2e -- tests/e2e/board.spec.ts`
+- ⚠️ Full `CI= npm run test:e2e` still has intermittent pre-existing auth/signup timeouts in this environment
 
 ### TICKET-20 (Planned Feb 20, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-20-PRIMER.md`

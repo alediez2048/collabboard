@@ -16,7 +16,7 @@ describe('zoom interaction helpers', () => {
   });
 
   it('clamps zoom to supported bounds', () => {
-    expect(clampZoom(0.0001)).toBe(0.1);
+    expect(clampZoom(0.0001)).toBe(0.01);
     expect(clampZoom(100)).toBe(10);
     expect(clampZoom(2.5)).toBe(2.5);
   });

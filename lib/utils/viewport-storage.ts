@@ -8,7 +8,7 @@ export const defaultViewport: ViewportState = {
   pan: { x: 0, y: 0 },
 };
 
-const MIN_ZOOM = 0.1;
+const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 10;
 
 function storageKey(boardId: string): string {

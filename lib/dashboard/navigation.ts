@@ -28,7 +28,7 @@ const DASHBOARD_SECTION_META: Record<DashboardSection, DashboardSectionMeta> = {
     title: 'Starred',
     description: 'Pin important boards for quick access.',
     emptyStateTitle: 'No starred boards yet',
-    emptyStateDescription: 'Star functionality lands in the next dashboard iteration.',
+    emptyStateDescription: 'Star boards to pin them here for quick access.',
   },
 };
 
@@ -38,6 +38,18 @@ function normalizeSectionValue(value: string | string[] | undefined): string | u
   }
 
   return value;
+}
+
+function normalizeSearchValue(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) {
+    return (value[0] ?? '').trim();
+  }
+
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
 }
 
 export function isDashboardSection(value: string): value is DashboardSection {
@@ -51,6 +63,10 @@ export function parseDashboardSection(value: string | string[] | undefined): Das
   }
 
   return isDashboardSection(normalized) ? normalized : 'home';
+}
+
+export function parseDashboardSearchQuery(value: string | string[] | undefined): string {
+  return normalizeSearchValue(value);
 }
 
 export function getDashboardSectionMeta(section: DashboardSection): DashboardSectionMeta {

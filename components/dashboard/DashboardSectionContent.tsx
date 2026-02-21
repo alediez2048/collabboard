@@ -3,13 +3,14 @@ import {
   getDashboardSectionMeta,
   type DashboardSection,
 } from '@/lib/dashboard/navigation';
-import type { Board } from '@/types/board';
+import type { DashboardBoard } from '@/types/board';
 import type { ReactElement } from 'react';
 
 interface DashboardSectionContentProps {
-  boards: Board[];
+  boards: DashboardBoard[];
   userId: string;
   activeSection: DashboardSection;
+  searchQuery: string;
 }
 
 function EmptySection({
@@ -36,19 +37,28 @@ export function DashboardSectionContent({
   boards,
   userId,
   activeSection,
+  searchQuery,
 }: DashboardSectionContentProps): ReactElement {
   const sectionMeta = getDashboardSectionMeta(activeSection);
   const ownedBoards = boards.filter((board) => board.created_by === userId);
   const sharedBoards = boards.filter((board) => board.created_by !== userId);
+  const emptyStateTitle = searchQuery
+    ? `No boards match "${searchQuery}"`
+    : sectionMeta.emptyStateTitle;
+  const emptyStateDescription = searchQuery
+    ? 'Try another search or clear the query to see more boards.'
+    : sectionMeta.emptyStateDescription;
 
   if (activeSection === 'home') {
     if (boards.length === 0) {
       return (
-        <EmptySection
-          testId="dashboard-empty-home"
-          title={sectionMeta.emptyStateTitle}
-          description={sectionMeta.emptyStateDescription}
-        />
+        <section data-testid="dashboard-section-home" className="space-y-6">
+          <EmptySection
+            testId="dashboard-empty-home"
+            title={emptyStateTitle}
+            description={emptyStateDescription}
+          />
+        </section>
       );
     }
 
@@ -84,20 +94,14 @@ export function DashboardSectionContent({
     return (
       <EmptySection
         testId={`dashboard-empty-${activeSection}`}
-        title={sectionMeta.emptyStateTitle}
-        description={sectionMeta.emptyStateDescription}
+        title={emptyStateTitle}
+        description={emptyStateDescription}
       />
     );
   }
 
   return (
     <section data-testid={`dashboard-section-${activeSection}`} className="space-y-4">
-      <p
-        className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500"
-        data-testid="dashboard-section-scaffold-note"
-      >
-        {sectionMeta.title} is scaffolded for now and currently reuses your full board list.
-      </p>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {boards.map((board) => (
           <DashboardBoardCard

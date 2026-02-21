@@ -82,7 +82,7 @@ All 9 items must be working and deployed:
 
 ---
 
-### TICKET-02: Konva Canvas with Pan/Zoom
+### TICKET-02: va Canvas witKonh Pan/Zoom
 **Time budget:** 1.5 hours  
 **Dependencies:** TICKET-01  
 **Branch:** `feat/canvas`
