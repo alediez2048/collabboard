@@ -88,6 +88,16 @@ function isTextEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+function isDeleteKeyboardEvent(event: KeyboardEvent): boolean {
+  return (
+    event.key === 'Backspace' ||
+    event.key === 'Delete' ||
+    event.key === 'Del' ||
+    event.code === 'Backspace' ||
+    event.code === 'Delete'
+  );
+}
+
 function appendRollingSample(
   samples: number[],
   next: number,
@@ -124,6 +134,13 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const selectedObjectIdsRef = useRef<string[]>([]);
+  const editingObjectIdRef = useRef<string | null>(null);
+  const boardObjectsRef = useRef<BoardObject[]>([]);
+  const yDocRef = useRef<Y.Doc | null>(null);
+  const applySelectionRef = useRef<
+    (objectIds: string[], preferredPrimaryId?: string | null) => void
+  >(() => {});
 
   // Shape draw-in-progress state (drag to draw)
   const [drawingShape, setDrawingShape] = useState<{
@@ -231,6 +248,10 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     () => new Set(selectedObjectIds),
     [selectedObjectIds],
   );
+  selectedObjectIdsRef.current = selectedObjectIds;
+  editingObjectIdRef.current = editingObjectId;
+  boardObjectsRef.current = boardObjects;
+  yDocRef.current = yDoc;
   const isDenseBoard = boardObjects.length >= 500;
   const simplifyDenseInteractionRendering =
     isDenseBoard &&
@@ -745,20 +766,16 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
       setBoardObjects((previousObjects) => {
         const nextObjects = runFullLoad
-          ? (() => {
-              const fullObjects = getAllObjects(objects);
-              boardObjectIndexById.clear();
-              for (let index = 0; index < fullObjects.length; index += 1) {
-                boardObjectIndexById.set(fullObjects[index].id, index);
-              }
-              return fullObjects;
-            })()
-          : applyObjectMapChanges(
-              previousObjects,
-              objects,
-              changedKeysSnapshot,
-              boardObjectIndexById,
-            );
+          ? getAllObjects(objects)
+          : applyObjectMapChanges(previousObjects, objects, changedKeysSnapshot);
+
+        // Keep index cache aligned with the computed next state. Rebuilding from
+        // nextObjects avoids stale-index issues when React double-invokes state
+        // updaters in development.
+        boardObjectIndexById.clear();
+        for (let index = 0; index < nextObjects.length; index += 1) {
+          boardObjectIndexById.set(nextObjects[index].id, index);
+        }
 
         if (process.env.NODE_ENV === 'development') {
           const now = Date.now();
@@ -948,6 +965,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       objectIds.length > 0 ? objectIds[objectIds.length - 1] : null,
   ): void => {
     multiDragSessionRef.current = null;
+    selectedObjectIdsRef.current = objectIds;
     setSelectedObjectIds(objectIds);
     setSelectedObjectId(preferredPrimaryId);
 
@@ -959,6 +977,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     const selectedObject = objectLookup.get(objectIds[0]);
     setShowColorPicker(isColorPickerEligible(selectedObject));
   };
+  applySelectionRef.current = applySelection;
 
   const handleCursorLatencySample = (latencyMs: number): void => {
     const averageLatencyMs = appendRollingSample(
@@ -979,55 +998,60 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       const key = (e.key ?? '').toLowerCase();
       const isSelectAllShortcut =
         (e.metaKey || e.ctrlKey) && !e.altKey && (key === 'a' || e.code === 'KeyA');
+      const currentEditingObjectId = editingObjectIdRef.current;
+      const currentSelectedObjectIds = selectedObjectIdsRef.current;
 
       // Keep native text-selection behavior in focused text inputs.
       if (isSelectAllShortcut && isTextEditableTarget(e.target)) {
         return;
       }
 
-      if (isSelectAllShortcut && !editingObjectId) {
+      if (isSelectAllShortcut && !currentEditingObjectId) {
         e.preventDefault();
-        const allObjectIds = boardObjects.map((object) => object.id);
-        applySelection(allObjectIds);
+        const allObjectIds = boardObjectsRef.current.map((object) => object.id);
+        applySelectionRef.current(allObjectIds);
         return;
       }
 
       if (
-        (e.key === 'Backspace' || e.key === 'Delete') &&
-        selectedObjectIds.length > 0 &&
-        !editingObjectId
+        !isDeleteKeyboardEvent(e) ||
+        currentSelectedObjectIds.length === 0 ||
+        currentEditingObjectId
       ) {
-        e.preventDefault();
-        if (yDoc) {
-          const objects = yDoc.getMap<BoardObject>('objects');
-          const selectedIds = new Set(selectedObjectIds);
-
-          selectedObjectIds.forEach((id) => {
-            removeObject(objects, id);
-          });
-
-          // Remove any connectors whose fromId or toId referenced a deleted object
-          objects.forEach((obj, key) => {
-            if (obj.type !== 'connector') return;
-            const fromId =
-              typeof obj.properties.fromId === 'string' ? obj.properties.fromId : '';
-            const toId =
-              typeof obj.properties.toId === 'string' ? obj.properties.toId : '';
-            if (selectedIds.has(fromId) || selectedIds.has(toId)) {
-              objects.delete(key);
-            }
-          });
-
-          applySelection([]);
-        }
+        return;
       }
+
+      e.preventDefault();
+      const currentDoc = yDocRef.current;
+      if (!currentDoc) return;
+
+      const objects = currentDoc.getMap<BoardObject>('objects');
+      const selectedIds = new Set(currentSelectedObjectIds);
+
+      currentSelectedObjectIds.forEach((id) => {
+        removeObject(objects, id);
+      });
+
+      // Remove any connectors whose fromId or toId referenced a deleted object
+      objects.forEach((obj, key) => {
+        if (obj.type !== 'connector') return;
+        const fromId =
+          typeof obj.properties.fromId === 'string' ? obj.properties.fromId : '';
+        const toId =
+          typeof obj.properties.toId === 'string' ? obj.properties.toId : '';
+        if (selectedIds.has(fromId) || selectedIds.has(toId)) {
+          objects.delete(key);
+        }
+      });
+
+      applySelectionRef.current([]);
     };
 
     // Capture phase ensures board shortcuts still fire when nested components
     // attach their own key handlers.
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [selectedObjectIds, editingObjectId, yDoc, boardObjects, objectLookup]);
+  }, []);
 
   // Create sticky note on canvas click (when sticky tool is active)
   const handleStageClick = async (e: KonvaEventObject<MouseEvent>): Promise<void> => {
