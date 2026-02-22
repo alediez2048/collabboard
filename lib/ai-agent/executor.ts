@@ -10,6 +10,18 @@ import {
   validateFindObjectsArgs,
 } from '@/lib/ai-agent/tools';
 import type { BoardStateScopeContext, BoardStateViewport, ScopedBoardState } from '@/lib/ai-agent/scoped-state';
+import {
+  inlineMutate,
+  inlineMutateBatch,
+  inlineBoardState,
+  inlineFindObjects,
+} from '@/lib/ai-agent/inline-bridge';
+
+function isConnectionError(err: unknown): boolean {
+  if (err instanceof TypeError && err.message === 'fetch failed') return true;
+  if (err instanceof Error && /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/.test(err.message)) return true;
+  return false;
+}
 
 export interface ToolCallInput {
   id: string;
@@ -37,6 +49,7 @@ export interface ExecutionResult {
   actions: ActionRecord[];
   objectsAffected: string[];
   toolOutputs: ToolOutputRecord[];
+  inlineCreatedObjects?: Array<Record<string, unknown>>;
   error?: string;
 }
 
@@ -53,6 +66,7 @@ export interface ExecutionTraceOptions {
 interface BridgeMutateResponse {
   success: boolean;
   affectedObjectIds: string[];
+  objects?: Array<Record<string, unknown>>;
   error?: string;
 }
 
@@ -64,6 +78,7 @@ interface BridgeBatchResult {
 interface BridgeBatchMutateResponse {
   success: boolean;
   results?: BridgeBatchResult[];
+  objects?: Array<Record<string, unknown>>;
   failedIndex?: number;
   error?: string;
 }
@@ -145,12 +160,19 @@ async function callBridgeMutate(
   traceId?: string,
 ): Promise<BridgeMutateResponse> {
   const url = `${getRealtimeServerUrl()}/ai/mutate`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildBridgeHeaders(traceId),
-    body: JSON.stringify({ boardId, userId, action: { tool, args } }),
-  });
-  return res.json() as Promise<BridgeMutateResponse>;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildBridgeHeaders(traceId),
+      body: JSON.stringify({ boardId, userId, action: { tool, args } }),
+    });
+    return res.json() as Promise<BridgeMutateResponse>;
+  } catch (fetchErr) {
+    if (isConnectionError(fetchErr)) {
+      return inlineMutate(boardId, userId, { tool, args });
+    }
+    throw fetchErr;
+  }
 }
 
 async function callBridgeMutateBatch(
@@ -160,12 +182,19 @@ async function callBridgeMutateBatch(
   traceId?: string,
 ): Promise<BridgeBatchMutateResponse> {
   const url = `${getRealtimeServerUrl()}/ai/mutate-batch`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildBridgeHeaders(traceId),
-    body: JSON.stringify({ boardId, userId, actions }),
-  });
-  return res.json() as Promise<BridgeBatchMutateResponse>;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildBridgeHeaders(traceId),
+      body: JSON.stringify({ boardId, userId, actions }),
+    });
+    return res.json() as Promise<BridgeBatchMutateResponse>;
+  } catch (fetchErr) {
+    if (isConnectionError(fetchErr)) {
+      return inlineMutateBatch(boardId, userId, actions);
+    }
+    throw fetchErr;
+  }
 }
 
 async function callBridgeBoardState(
@@ -178,12 +207,19 @@ async function callBridgeBoardState(
   if (context) {
     payload.context = context;
   }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildBridgeHeaders(traceId),
-    body: JSON.stringify(payload),
-  });
-  return res.json() as Promise<BridgeStateResponse>;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildBridgeHeaders(traceId),
+      body: JSON.stringify(payload),
+    });
+    return res.json() as Promise<BridgeStateResponse>;
+  } catch (fetchErr) {
+    if (isConnectionError(fetchErr)) {
+      return inlineBoardState(boardId, context);
+    }
+    throw fetchErr;
+  }
 }
 
 async function callBridgeFindObjects(
@@ -192,12 +228,19 @@ async function callBridgeFindObjects(
   traceId?: string,
 ): Promise<BridgeFindObjectsResponse> {
   const url = `${getRealtimeServerUrl()}/ai/find-objects`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildBridgeHeaders(traceId),
-    body: JSON.stringify({ boardId, query }),
-  });
-  return res.json() as Promise<BridgeFindObjectsResponse>;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildBridgeHeaders(traceId),
+      body: JSON.stringify({ boardId, query }),
+    });
+    return res.json() as Promise<BridgeFindObjectsResponse>;
+  } catch (fetchErr) {
+    if (isConnectionError(fetchErr)) {
+      return inlineFindObjects(boardId, query);
+    }
+    throw fetchErr;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -302,6 +345,7 @@ export async function executeToolCalls(
   const actions: ActionRecord[] = [];
   const objectsAffected: string[] = [];
   const toolOutputs: ToolOutputRecord[] = [];
+  const inlineCreatedObjects: Array<Record<string, unknown>> = [];
 
   for (let index = 0; index < toolCalls.length; index += 1) {
     const call = toolCalls[index];
@@ -481,6 +525,9 @@ export async function executeToolCalls(
 
         const batchResults = Array.isArray(batchResponse.results) ? batchResponse.results : [];
         const appliedCount = Math.min(batchResults.length, mutationBatch.length);
+        if (Array.isArray(batchResponse.objects)) {
+          inlineCreatedObjects.push(...(batchResponse.objects as Array<Record<string, unknown>>));
+        }
 
         for (let offset = 0; offset < appliedCount; offset += 1) {
           const batchCall = mutationBatch[offset];
@@ -570,6 +617,9 @@ export async function executeToolCalls(
               };
             }
             objectsAffected.push(...bridgeResult.affectedObjectIds);
+            if (Array.isArray(bridgeResult.objects)) {
+              inlineCreatedObjects.push(...bridgeResult.objects);
+            }
             actions.push({
               tool: batchCall.toolName,
               args: batchCall.args,
@@ -622,6 +672,9 @@ export async function executeToolCalls(
         };
       }
       objectsAffected.push(...bridgeResult.affectedObjectIds);
+      if (Array.isArray(bridgeResult.objects)) {
+        inlineCreatedObjects.push(...bridgeResult.objects);
+      }
       actions.push({ tool: toolName, args, result: `Affected: ${bridgeResult.affectedObjectIds.join(', ')}` });
       toolOutputs.push({
         toolCallId: call.id,
@@ -650,5 +703,11 @@ export async function executeToolCalls(
     objectsAffectedCount: objectsAffected.length,
   });
 
-  return { success: true, actions, objectsAffected, toolOutputs };
+  return {
+    success: true,
+    actions,
+    objectsAffected,
+    toolOutputs,
+    ...(inlineCreatedObjects.length > 0 ? { inlineCreatedObjects } : {}),
+  };
 }

@@ -22,6 +22,7 @@ interface AICommandBarProps {
     success: boolean;
     objectsAffected: number;
   }) => void;
+  onApplyInlineObjects?: (objects: Array<Record<string, unknown>>) => void;
 }
 
 type CommandStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -36,6 +37,7 @@ interface CommandResponse {
   success: boolean;
   actions: ActionRecord[];
   objectsAffected: string[];
+  inlineCreatedObjects?: Array<Record<string, unknown>>;
   error?: string;
 }
 
@@ -55,7 +57,7 @@ function buildSuccessMessage(response: CommandResponse): string {
   return `Done — ${pluralise(count, 'object')} updated via: ${tools.join(', ')}.`;
 }
 
-export function AICommandBar({ boardId, requestContext, onCommandMetrics }: AICommandBarProps): ReactElement {
+export function AICommandBar({ boardId, requestContext, onCommandMetrics, onApplyInlineObjects }: AICommandBarProps): ReactElement {
   const [command, setCommand] = useState('');
   const [status, setStatus] = useState<CommandStatus>('idle');
   const [statusMessage, setStatusMessage] = useState('');
@@ -106,6 +108,9 @@ export function AICommandBar({ boardId, requestContext, onCommandMetrics }: AICo
 
       setStatus('success');
       setStatusMessage(buildSuccessMessage(data));
+      if (data.inlineCreatedObjects?.length && onApplyInlineObjects) {
+        onApplyInlineObjects(data.inlineCreatedObjects);
+      }
       onCommandMetrics?.({
         elapsedMs: performance.now() - startedAt,
         success: true,

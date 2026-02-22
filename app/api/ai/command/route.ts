@@ -803,6 +803,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       actions: executionResult.actions,
       objectsAffected: executionResult.objectsAffected,
       ...(executionResult.error ? { error: executionResult.error } : {}),
+      ...(executionResult.inlineCreatedObjects?.length ? { inlineCreatedObjects: executionResult.inlineCreatedObjects } : {}),
     });
   } catch (err) {
     console.error('[AI Command] Unexpected error:', err);

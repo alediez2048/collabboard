@@ -1656,6 +1656,20 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
     setAiPromptExecutionMs(metrics.elapsedMs);
   };
 
+  const handleApplyInlineObjects = useCallback((objects: Array<Record<string, unknown>>): void => {
+    const currentDoc = yDocRef.current;
+    if (!currentDoc) return;
+    const objectsMap = currentDoc.getMap<BoardObject>('objects');
+    currentDoc.transact(() => {
+      for (const obj of objects) {
+        const id = obj.id;
+        if (typeof id === 'string') {
+          objectsMap.set(id, obj as unknown as BoardObject);
+        }
+      }
+    });
+  }, []);
+
   const clearMultiDragSession = (): void => {
     const session = multiDragSessionRef.current;
     if (!session) return;
@@ -2606,6 +2620,7 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
         boardId={boardId}
         requestContext={aiCommandContext}
         onCommandMetrics={handleAICommandMetrics}
+        onApplyInlineObjects={handleApplyInlineObjects}
       />
 
       {/* Hidden board ID for testing */}
