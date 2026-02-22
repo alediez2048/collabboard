@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   addObject,
+  addCommentReply,
   applyObjectMapChanges,
+  clearAllObjects,
   createBoardDoc,
+  getCommentThreadMessages,
   getAllObjects,
   removeObject,
   updateObjectPositions,
@@ -103,5 +106,98 @@ describe('applyObjectMapChanges', () => {
     expect(objects.get('b')?.x).toBe(130);
     expect(objects.get('b')?.y).toBe(140);
     expect(objects.get('b')?.updatedAt).toBe(updatedAt);
+  });
+});
+
+describe('clearAllObjects', () => {
+  it('removes every object from the board map and returns removed count', () => {
+    const { objects } = createBoardDoc();
+    addObject(objects, makeSticky('a'));
+    addObject(objects, makeSticky('b'));
+    addObject(objects, makeSticky('c'));
+
+    const removedCount = clearAllObjects(objects);
+
+    expect(removedCount).toBe(3);
+    expect(objects.size).toBe(0);
+  });
+});
+
+describe('comment thread helpers', () => {
+  function makeCommentThread(id: string): BoardObject {
+    return {
+      id,
+      type: 'comment_thread',
+      x: 100,
+      y: 120,
+      width: 28,
+      height: 28,
+      rotation: 0,
+      zIndex: 99,
+      properties: {
+        status: 'open',
+      },
+      createdBy: 'owner-1',
+      updatedAt: '2026-02-21T10:00:00.000Z',
+    };
+  }
+
+  it('appends replies as independent comment message objects', () => {
+    const { objects } = createBoardDoc();
+    addObject(objects, makeCommentThread('thread-1'));
+
+    const first = addCommentReply(objects, {
+      threadId: 'thread-1',
+      messageId: 'msg-1',
+      text: 'First comment',
+      authorId: 'user-1',
+      authorName: 'User One',
+      createdAt: '2026-02-21T10:01:00.000Z',
+    });
+    const second = addCommentReply(objects, {
+      threadId: 'thread-1',
+      messageId: 'msg-2',
+      text: 'Second comment',
+      authorId: 'user-2',
+      authorName: 'User Two',
+      createdAt: '2026-02-21T10:02:00.000Z',
+    });
+
+    expect(first?.type).toBe('comment_message');
+    expect(second?.type).toBe('comment_message');
+    expect(getCommentThreadMessages(objects, 'thread-1')).toEqual([
+      {
+        id: 'msg-1',
+        threadId: 'thread-1',
+        text: 'First comment',
+        authorId: 'user-1',
+        authorName: 'User One',
+        createdAt: '2026-02-21T10:01:00.000Z',
+      },
+      {
+        id: 'msg-2',
+        threadId: 'thread-1',
+        text: 'Second comment',
+        authorId: 'user-2',
+        authorName: 'User Two',
+        createdAt: '2026-02-21T10:02:00.000Z',
+      },
+    ]);
+  });
+
+  it('does not add replies for missing threads', () => {
+    const { objects } = createBoardDoc();
+
+    const created = addCommentReply(objects, {
+      threadId: 'missing-thread',
+      messageId: 'msg-1',
+      text: 'Will not be created',
+      authorId: 'user-1',
+      authorName: 'User One',
+      createdAt: '2026-02-21T10:01:00.000Z',
+    });
+
+    expect(created).toBeUndefined();
+    expect(objects.size).toBe(0);
   });
 });

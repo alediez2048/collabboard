@@ -32,6 +32,7 @@ describe('board authoring controls', () => {
     expect(shouldEnableObjectInteractions('hand')).toBe(false);
     expect(shouldEnableObjectInteractions('pencil')).toBe(false);
     expect(shouldEnableObjectInteractions('eraser')).toBe(false);
+    expect(shouldEnableObjectInteractions('comment')).toBe(false);
     expect(shouldEnableObjectInteractions('select')).toBe(true);
     expect(shouldEnableObjectInteractions('text')).toBe(true);
   });
@@ -40,6 +41,7 @@ describe('board authoring controls', () => {
     expect(getStageCursor('rectangle', false)).toBe('crosshair');
     expect(getStageCursor('pencil', false)).toBe('crosshair');
     expect(getStageCursor('eraser', false)).toBe('crosshair');
+    expect(getStageCursor('comment', false)).toBe('crosshair');
     expect(getStageCursor('connector', false)).toBe('cell');
     expect(getStageCursor('text', false)).toBe('text');
     expect(getStageCursor('hand', false)).toBe('grab');

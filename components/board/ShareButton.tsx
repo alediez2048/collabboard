@@ -4,6 +4,8 @@ import { useState } from 'react';
 
 interface ShareButtonProps {
   boardId: string;
+  inline?: boolean;
+  className?: string;
 }
 
 /**
@@ -11,7 +13,7 @@ interface ShareButtonProps {
  * send it to collaborators. When they open the link they'll see
  * the JoinBoardPrompt and can self-onboard.
  */
-export function ShareButton({ boardId }: ShareButtonProps) {
+export function ShareButton({ boardId, inline = false, className = '' }: ShareButtonProps) {
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const setStatusForDuration = (nextStatus: 'success' | 'error', durationMs: number): void => {
@@ -60,7 +62,11 @@ export function ShareButton({ boardId }: ShareButtonProps) {
       data-testid="share-board-button"
       onClick={handleCopy}
       title="Copy shareable link"
-      className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+      className={`flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+        inline
+          ? 'bg-white hover:bg-gray-50'
+          : 'absolute top-4 right-4 z-10 bg-white hover:bg-gray-50'
+      } ${className}`.trim()}
     >
       {status === 'success' ? (
         <>

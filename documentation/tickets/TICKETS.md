@@ -37,8 +37,8 @@
 - [ ] **TICKET-18.1** — Toolbar Authoring Expansion (Text Styling + Select/Hand + Pencil/Eraser + Undo/Redo) (~4–6 hrs)
 - [x] **TICKET-19** — Quick-Start Templates + Deterministic Board Seeding (~3–4 hrs) ✅ Completed Feb 20
 - [ ] **TICKET-20** — Board Preview Cards + Snapshot Thumbnails + View Toggle (~3 hrs)
-- [ ] **TICKET-21** — Workspace Productivity Controls (Undo/Redo + Clear + Header/Rail Refinement) (~3–4 hrs)
-- [ ] **TICKET-22** — Canvas Comment Pins + Threaded Discussions (~3–4 hrs)
+- [x] **TICKET-21** — Workspace Productivity Controls (Undo/Redo + Clear + Header/Rail Refinement) (~3–4 hrs) ✅ Completed Feb 21
+- [x] **TICKET-22** — Canvas Comment Pins + Threaded Discussions (~3–4 hrs) ✅ Completed Feb 21
 
 ## Notes
 
@@ -111,13 +111,17 @@ _Update this file after completing each ticket. Add a one-line note if you devia
 - 📌 Primer created: `documentation/tickets/TICKET-20-PRIMER.md`
 - 🎯 Focus: upgrade board list cards to gallery previews with snapshot thumbnails, quick actions, and view-mode switching
 
-### TICKET-21 (Planned Feb 20, 2026)
+### TICKET-21 (Completed Feb 21, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-21-PRIMER.md`
 - 🎯 Focus: improve in-board productivity controls (top status/header refinements + left tool organization) and add undo/redo + clear-board controls
+- ✅ Delivered: unified top header bar (save state + avatars + share + owner-only clear), vertical left tool rail, and clear-board confirmation flow through Yjs transaction semantics
+- ✅ Tests/verification: `npm run lint`, `npm test`, `npm run build`, `env -u CI npm run test:e2e -- tests/e2e/board.spec.ts --grep "clears board only after confirmation and persists cleared state"`
 
-### TICKET-22 (Planned Feb 20, 2026)
+### TICKET-22 (Completed Feb 21, 2026)
 - 📌 Primer created: `documentation/tickets/TICKET-22-PRIMER.md`
 - 🎯 Focus: add collaborative canvas comment pins and lightweight threaded discussion UX
+- ✅ Delivered: comment tool + pin placement, threaded discussion panel, reply + resolve controls, realtime sync/persistence on Yjs board objects
+- ✅ Added tests: unit/integration coverage for comment helpers + concurrent reply merge safety, and board e2e workflow for create/reopen/resolve thread
 
 ### TICKET-11 (Completed Feb 18, 2026)
 - ✅ All acceptance criteria met for basic AI command flow

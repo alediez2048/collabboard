@@ -15,8 +15,9 @@ const Canvas = dynamic(() => import('./Canvas').then((mod) => ({ default: mod.Ca
 interface BoardCanvasProps {
   boardId: string;
   boardName: string;
+  boardOwnerId: string;
 }
 
-export function BoardCanvas({ boardId, boardName }: BoardCanvasProps) {
-  return <Canvas boardId={boardId} boardName={boardName} />;
+export function BoardCanvas({ boardId, boardName, boardOwnerId }: BoardCanvasProps) {
+  return <Canvas boardId={boardId} boardName={boardName} boardOwnerId={boardOwnerId} />;
 }

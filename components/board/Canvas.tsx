@@ -11,23 +11,28 @@ import { useUIStore } from '@/stores/ui-store';
 import { Grid } from './Grid';
 import { BoardHeader } from './BoardHeader';
 import { Toolbar } from './Toolbar';
+import { CommentThreadPanel } from './CommentThreadPanel';
 import { StickyNote } from './StickyNote';
 import { FreehandStroke } from './FreehandStroke';
 import { TextEditor } from './TextEditor';
 import { ColorPicker } from './ColorPicker';
 import { RemoteCursorsLayer } from './RemoteCursorsLayer';
-import { ShareButton } from './ShareButton';
-import { PresenceBar } from './PresenceBar';
 import { PerformanceHUD } from './PerformanceHUD';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   createBoardDoc,
   addObject,
+  addCommentReply,
+  clearAllObjects,
+  getCommentThreadMessages,
   updateObject,
   updateObjectPositions,
   removeObject,
+  setCommentThreadResolved,
   getAllObjects,
   applyObjectMapChanges,
   type BoardObject,
+  type CommentMessage,
 } from '@/lib/yjs/board-doc';
 import { Shape } from './Shape';
 import { Frame } from './Frame';
@@ -71,6 +76,7 @@ import { AICommandBar } from './AICommandBar';
 interface CanvasProps {
   boardId: string;
   boardName: string;
+  boardOwnerId: string;
 }
 
 /**
@@ -130,6 +136,11 @@ function normalizeFreehandPoints(value: unknown): number[] {
   return points.slice(0, points.length - 1);
 }
 
+function getCommentThreadStatus(object: BoardObject): 'open' | 'resolved' {
+  if (object.type !== 'comment_thread') return 'open';
+  return object.properties.status === 'resolved' ? 'resolved' : 'open';
+}
+
 function appendRollingSample(
   samples: number[],
   next: number,
@@ -143,7 +154,7 @@ function appendRollingSample(
   return total / samples.length;
 }
 
-export function Canvas({ boardId, boardName }: CanvasProps) {
+export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const shapeRefs = useRef<Map<string, Konva.Node>>(new Map());
@@ -163,12 +174,19 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
   // Board objects state (derived from Yjs Y.Map)
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
+  const [saveState, setSaveState] = useState<'saving' | 'saved'>('saved');
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Selection and editing state
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [isClearingBoard, setIsClearingBoard] = useState(false);
+  const [clearBoardErrorMessage, setClearBoardErrorMessage] = useState<string | null>(null);
   const selectedObjectIdsRef = useRef<string[]>([]);
   const editingObjectIdRef = useRef<string | null>(null);
   const boardObjectsRef = useRef<BoardObject[]>([]);
@@ -213,6 +231,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   } | null>(null);
 
   const [userColor, setUserColor] = useState<string>('#3b82f6');
+  const [sessionUserId, setSessionUserId] = useState<string>('');
   // Store session info in refs so cursor emission never needs async calls
   const sessionUserIdRef = useRef<string>('');
   const sessionUserNameRef = useRef<string>('Anonymous');
@@ -297,6 +316,26 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     (isStagePanning || isWheelZooming || isObjectDragging || isMultiDragActive || !!drawingFreehand);
   const stagePanningEnabled = canPanStage(selectedTool);
   const objectInteractionsEnabled = shouldEnableObjectInteractions(selectedTool);
+  const isBoardOwner = sessionUserId.length > 0 && sessionUserId === boardOwnerId;
+  const canClearBoard = !!yDoc && isBoardOwner;
+
+  const markBoardSaving = useCallback((): void => {
+    setSaveState('saving');
+    if (saveStatusTimerRef.current) {
+      clearTimeout(saveStatusTimerRef.current);
+    }
+    saveStatusTimerRef.current = setTimeout(() => {
+      setSaveState('saved');
+    }, 700);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (saveStatusTimerRef.current) {
+        clearTimeout(saveStatusTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     viewportRef.current = { zoom, pan };
@@ -379,6 +418,36 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
     return { frames, connectors, freehandStrokes, shapes, stickyNotes };
   }, [visibleBoardObjects, objectLookup]);
+
+  const commentThreads = useMemo(
+    () => boardObjects.filter((object) => object.type === 'comment_thread'),
+    [boardObjects],
+  );
+  const visibleCommentThreads = useMemo(
+    () => commentThreads.filter((thread) => getCommentThreadStatus(thread) !== 'resolved'),
+    [commentThreads],
+  );
+  const activeCommentThread = useMemo(() => {
+    if (!activeCommentThreadId) return null;
+    const thread = objectLookup.get(activeCommentThreadId);
+    return thread?.type === 'comment_thread' ? thread : null;
+  }, [activeCommentThreadId, objectLookup]);
+  const activeCommentMessages: CommentMessage[] =
+    yDoc && activeCommentThreadId
+      ? getCommentThreadMessages(yDoc.getMap<BoardObject>('objects'), activeCommentThreadId)
+      : [];
+  const activeCommentPanelPosition = useMemo(() => {
+    if (!activeCommentThread) return null;
+    const panelWidth = Math.min(352, Math.max(dimensions.width - 32, 240));
+    const leftRaw = activeCommentThread.x * zoom + pan.x + 24;
+    const topRaw = activeCommentThread.y * zoom + pan.y - 8;
+    const maxLeft = Math.max(16, dimensions.width - panelWidth - 16);
+    const maxTop = Math.max(16, dimensions.height - 340);
+    return {
+      left: Math.min(Math.max(leftRaw, 16), maxLeft),
+      top: Math.min(Math.max(topRaw, 16), maxTop),
+    };
+  }, [activeCommentThread, dimensions.height, dimensions.width, pan.x, pan.y, zoom]);
 
   // Handle window resize
   useEffect(() => {
@@ -882,6 +951,10 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         boardObserverMetricsRef.current.observedInWindow += 1;
       }
 
+      if (event.transaction.local && event.keysChanged.size > 0) {
+        markBoardSaving();
+      }
+
       const now = Date.now();
       for (const key of event.keysChanged) {
         pendingObjectChangeIds.add(key);
@@ -924,7 +997,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       pendingObjectChangeIds.clear();
       boardObjectIndexById.clear();
     };
-  }, [yDoc]);
+  }, [markBoardSaving, yDoc]);
 
   // Initialize user color + cache session info for cursor emission
   useEffect(() => {
@@ -935,6 +1008,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       if (session) {
         const color = getUserColor(session.user.id);
         setUserColor(color);
+        setSessionUserId(session.user.id);
         sessionUserIdRef.current = session.user.id;
         sessionUserNameRef.current = session.user.email?.split('@')[0] || 'Anonymous';
         setOnlineUsersCount(1);
@@ -1021,6 +1095,8 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     object.type !== 'line' &&
     object.type !== 'connector' &&
     object.type !== 'frame' &&
+    object.type !== 'comment_thread' &&
+    object.type !== 'comment_message' &&
     object.type !== 'text';
 
   const applySelection = (
@@ -1074,6 +1150,121 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     setConnectingFrom(null);
     applySelectionRef.current([]);
   }, []);
+
+  const handleOpenClearBoardDialog = useCallback((): void => {
+    setClearBoardErrorMessage(null);
+    setIsClearDialogOpen(true);
+  }, []);
+
+  const handleCancelClearBoard = useCallback((): void => {
+    if (isClearingBoard) return;
+    setClearBoardErrorMessage(null);
+    setIsClearDialogOpen(false);
+  }, [isClearingBoard]);
+
+  const handleConfirmClearBoard = useCallback(async (): Promise<void> => {
+    const currentDoc = yDocRef.current;
+    if (!currentDoc) {
+      setClearBoardErrorMessage('Board is still connecting. Try again in a moment.');
+      return;
+    }
+    if (!canClearBoard) {
+      setClearBoardErrorMessage('Only the board owner can clear this board.');
+      return;
+    }
+
+    setIsClearingBoard(true);
+    setClearBoardErrorMessage(null);
+    try {
+      const objects = currentDoc.getMap<BoardObject>('objects');
+      currentDoc.transact(() => {
+        clearAllObjects(objects);
+      }, 'clear-board');
+      clearEditingUiState();
+      setActiveCommentThreadId(null);
+      setCommentDraft('');
+      setIsClearDialogOpen(false);
+    } catch (error) {
+      setClearBoardErrorMessage(
+        error instanceof Error ? error.message : 'Failed to clear board. Try again.',
+      );
+    } finally {
+      setIsClearingBoard(false);
+    }
+  }, [canClearBoard, clearEditingUiState]);
+
+  const handleOpenCommentThread = useCallback((threadId: string): void => {
+    setShowColorPicker(false);
+    setActiveCommentThreadId(threadId);
+    setCommentDraft('');
+  }, []);
+
+  const handleCloseCommentThread = useCallback((): void => {
+    const threadId = activeCommentThreadId;
+    setCommentDraft('');
+    if (!threadId) {
+      setActiveCommentThreadId(null);
+      return;
+    }
+
+    const currentDoc = yDocRef.current;
+    if (!currentDoc) {
+      setActiveCommentThreadId(null);
+      return;
+    }
+
+    const objects = currentDoc.getMap<BoardObject>('objects');
+    const hasMessages = getCommentThreadMessages(objects, threadId).length > 0;
+    if (!hasMessages) {
+      removeObject(objects, threadId);
+    }
+
+    setActiveCommentThreadId(null);
+  }, [activeCommentThreadId]);
+
+  const handleSubmitCommentReply = useCallback((): void => {
+    const threadId = activeCommentThreadId;
+    const currentDoc = yDocRef.current;
+    const trimmedText = commentDraft.trim();
+    if (!threadId || !currentDoc || trimmedText.length === 0) {
+      return;
+    }
+
+    const objects = currentDoc.getMap<BoardObject>('objects');
+    const createdReply = addCommentReply(objects, {
+      threadId,
+      messageId: crypto.randomUUID(),
+      text: trimmedText,
+      authorId: sessionUserIdRef.current || 'anonymous',
+      authorName: sessionUserNameRef.current || 'Anonymous',
+      createdAt: new Date().toISOString(),
+    });
+
+    if (createdReply) {
+      setCommentDraft('');
+    }
+  }, [activeCommentThreadId, commentDraft]);
+
+  const handleToggleCommentThreadResolved = useCallback((): void => {
+    const threadId = activeCommentThreadId;
+    const currentDoc = yDocRef.current;
+    if (!threadId || !currentDoc) {
+      return;
+    }
+
+    const objects = currentDoc.getMap<BoardObject>('objects');
+    const thread = objects.get(threadId);
+    if (!thread || thread.type !== 'comment_thread') {
+      return;
+    }
+
+    const resolved = getCommentThreadStatus(thread) === 'resolved';
+    const didUpdate = setCommentThreadResolved(objects, threadId, !resolved);
+    if (didUpdate && !resolved) {
+      setActiveCommentThreadId(null);
+      setCommentDraft('');
+    }
+  }, [activeCommentThreadId]);
 
   const handleUndo = useCallback((): void => {
     const undoManager = undoManagerRef.current;
@@ -1137,6 +1328,12 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       const redoShortcut = isRedoShortcut(e);
       const currentEditingObjectId = editingObjectIdRef.current;
       const currentSelectedObjectIds = selectedObjectIdsRef.current;
+
+      if (e.key === 'Escape' && activeCommentThreadId) {
+        e.preventDefault();
+        handleCloseCommentThread();
+        return;
+      }
 
       // Keep native text-selection behavior in focused text inputs.
       if (isSelectAllShortcut && isTextEditableTarget(e.target)) {
@@ -1203,12 +1400,13 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     // attach their own key handlers.
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleRedo, handleUndo]);
+  }, [activeCommentThreadId, handleCloseCommentThread, handleRedo, handleUndo]);
 
-  // Create single-click objects (sticky note / text) on empty canvas
+  // Create single-click objects (sticky note / text / comment thread) on empty canvas
   const handleStageClick = async (e: KonvaEventObject<MouseEvent>): Promise<void> => {
     const stage = stageRef.current;
-    const canCreateSingleClickObject = selectedTool === 'sticky' || selectedTool === 'text';
+    const canCreateSingleClickObject =
+      selectedTool === 'sticky' || selectedTool === 'text' || selectedTool === 'comment';
     if (!stage || !yDoc || !canCreateSingleClickObject) return;
 
     // Only create if clicking on the stage itself (not on an object)
@@ -1230,6 +1428,30 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     if (!session) return;
 
     const objects = yDoc.getMap<BoardObject>('objects');
+    if (selectedTool === 'comment') {
+      const newThread: BoardObject = {
+        id: crypto.randomUUID(),
+        type: 'comment_thread',
+        x: canvasX,
+        y: canvasY,
+        width: 28,
+        height: 28,
+        rotation: 0,
+        zIndex: boardObjects.length + 1,
+        properties: {
+          status: 'open',
+        },
+        createdBy: session.user.id,
+        updatedAt: new Date().toISOString(),
+      };
+
+      addObject(objects, newThread);
+      clearEditingUiState();
+      setActiveCommentThreadId(newThread.id);
+      setCommentDraft('');
+      return;
+    }
+
     if (selectedTool === 'sticky') {
       const newNote: BoardObject = {
         id: crypto.randomUUID(),
@@ -1904,7 +2126,16 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
   return (
     <div className="fixed inset-0 bg-gray-50">
-      <BoardHeader boardName={boardName} />
+      <BoardHeader
+        boardName={boardName}
+        boardId={boardId}
+        saveState={saveState}
+        canClearBoard={canClearBoard}
+        isClearingBoard={isClearingBoard}
+        onClearBoard={handleOpenClearBoardDialog}
+        provider={provider}
+        currentUserId={sessionUserId}
+      />
 
       {/* Toolbar */}
       <Toolbar
@@ -1918,18 +2149,57 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         onPencilStrokeWidthChange={setPencilStrokeWidth}
       />
 
-      {/* Share button — top right */}
-      <ShareButton boardId={boardId} />
+      {/* Comment pins */}
+      {visibleCommentThreads.map((thread) => {
+        const left = thread.x * zoom + pan.x;
+        const top = thread.y * zoom + pan.y;
+        if (left < -40 || left > dimensions.width + 40 || top < -40 || top > dimensions.height + 40) {
+          return null;
+        }
 
-      {/* Presence bar — online user avatars */}
-      {provider && sessionUserIdRef.current && (
-        <PresenceBar
-          provider={provider}
-          currentUserId={sessionUserIdRef.current}
-        />
+        const isActive = activeCommentThreadId === thread.id;
+        return (
+          <button
+            key={thread.id}
+            type="button"
+            data-testid={`comment-pin-${thread.id}`}
+            onClick={() => handleOpenCommentThread(thread.id)}
+            className={`absolute z-20 inline-flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-xs shadow transition-colors ${
+              isActive
+                ? 'border-blue-500 bg-blue-600 text-white'
+                : 'border-blue-200 bg-white text-blue-700 hover:bg-blue-50'
+            }`}
+            style={{
+              left,
+              top,
+            }}
+            title="Open comment thread"
+            aria-label="Open comment thread"
+          >
+            💬
+          </button>
+        );
+      })}
+
+      <CommentThreadPanel
+        isOpen={!!activeCommentThread}
+        isResolved={activeCommentThread ? getCommentThreadStatus(activeCommentThread) === 'resolved' : false}
+        draftText={commentDraft}
+        messages={activeCommentMessages}
+        position={activeCommentPanelPosition}
+        onDraftTextChange={setCommentDraft}
+        onSubmit={handleSubmitCommentReply}
+        onClose={handleCloseCommentThread}
+        onToggleResolved={handleToggleCommentThreadResolved}
+      />
+
+      {/* Connector / tool hints */}
+      {selectedTool === 'comment' && (
+        <div className="absolute left-1/2 top-20 z-10 -translate-x-1/2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 shadow">
+          Click on the canvas to drop a comment pin
+        </div>
       )}
 
-      {/* Connector "connecting from" hint */}
       {selectedTool === 'connector' && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700 shadow">
           {connectingFrom
@@ -2286,6 +2556,19 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
           />
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={isClearDialogOpen}
+        title="Clear all board content?"
+        description="This will remove every object from the board for all collaborators. This action cannot be undone."
+        confirmLabel="Clear board"
+        isLoading={isClearingBoard}
+        errorMessage={clearBoardErrorMessage}
+        onConfirm={handleConfirmClearBoard}
+        onCancel={handleCancelClearBoard}
+        confirmButtonTestId="confirm-clear-board"
+        cancelButtonTestId="cancel-clear-board"
+      />
 
       {/* AI Command Bar */}
       <AICommandBar boardId={boardId} onCommandMetrics={handleAICommandMetrics} />

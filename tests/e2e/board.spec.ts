@@ -90,6 +90,49 @@ test.describe('Board Management', () => {
     await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/, { timeout: 10000 });
   });
 
+  test('toggles dashboard view mode and persists preference after refresh', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'dashboard-view-mode');
+
+    const listToggle = page.getByTestId('dashboard-view-list');
+    const gridToggle = page.getByTestId('dashboard-view-grid');
+
+    await expect(gridToggle).toHaveAttribute('aria-pressed', 'true');
+    await listToggle.click();
+    await expect(page).toHaveURL(/view=list/);
+    await expect(listToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(gridToggle).toHaveAttribute('aria-pressed', 'false');
+
+    await page.reload();
+    await expect(page.getByTestId('dashboard-view-list')).toHaveAttribute('aria-pressed', 'true');
+
+    const storedMode = await page.evaluate(() => window.localStorage.getItem('collabboard.dashboard.view-mode'));
+    expect(storedMode).toBe('list');
+  });
+
+  test('creates quick-start template boards from the home gallery', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'template-gallery');
+    const templates = [
+      { id: 'kanban', boardName: 'Kanban Board' },
+      { id: 'swot', boardName: 'SWOT Analysis' },
+      { id: 'lean_canvas', boardName: 'Lean Canvas' },
+      { id: 'retrospective', boardName: 'Retrospective' },
+    ] as const;
+
+    for (const template of templates) {
+      await page.goto('/');
+      const templateButton = page.getByTestId(`template-create-${template.id}`);
+      await expect(templateButton).toBeVisible();
+      await templateButton.click();
+
+      await expect(page).toHaveURL(/\/board\/[a-f0-9-]+/, { timeout: 15000 });
+      await expect(page.getByTestId('board-header-name')).toContainText(template.boardName);
+      await expect.poll(async () => readObjectCapacityCount(page)).toBeGreaterThan(0);
+      await page.reload();
+      await expect(page.getByTestId('board-header-name')).toContainText(template.boardName);
+      await expect.poll(async () => readObjectCapacityCount(page)).toBeGreaterThan(0);
+    }
+  });
+
   test('tracks recent ordering based on board open activity', async ({ page }) => {
     await signUpAndLandOnBoards(page, 'recent-ordering');
     const firstBoardId = await createBoard(page);
@@ -238,5 +281,46 @@ test.describe('Board Management', () => {
     await page.keyboard.press(SELECT_ALL_SHORTCUT);
     await page.keyboard.press('Delete');
     await expect.poll(async () => readObjectCapacityCount(page)).toBe(0);
+  });
+
+  test('clears board only after confirmation and persists cleared state', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'clear-board');
+    await createBoard(page);
+
+    await page.locator('button[title="Sticky Note"]').click();
+    await page.mouse.click(720, 360);
+    await expect.poll(async () => readObjectCapacityCount(page)).toBe(1);
+
+    await page.getByTestId('clear-board-button').click();
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+    await page.getByTestId('cancel-clear-board').click();
+    await expect.poll(async () => readObjectCapacityCount(page)).toBe(1);
+
+    await page.getByTestId('clear-board-button').click();
+    await page.getByTestId('confirm-clear-board').click();
+    await expect.poll(async () => readObjectCapacityCount(page)).toBe(0);
+
+    await page.reload();
+    await expect.poll(async () => readObjectCapacityCount(page)).toBe(0);
+  });
+
+  test('creates and reopens a comment thread from a canvas pin', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'comment-thread');
+    await createBoard(page);
+
+    await page.locator('button[title="Comment"]').click();
+    await page.mouse.click(760, 340);
+    await expect(page.getByTestId('comment-thread-panel')).toBeVisible();
+
+    await page.getByPlaceholder('Write a reply...').fill('First threaded comment');
+    await page.getByTestId('comment-submit-button').click();
+    await expect(page.getByText('First threaded comment')).toBeVisible();
+
+    await page.getByLabel('Close comment thread').click();
+    await page.getByTitle('Open comment thread').first().click();
+    await expect(page.getByText('First threaded comment')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Resolve' }).click();
+    await expect(page.getByTestId('comment-thread-panel')).not.toBeVisible();
   });
 });

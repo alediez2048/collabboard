@@ -7,9 +7,16 @@ import type { AwarenessUser } from '@/types/presence';
 interface PresenceBarProps {
   provider: WebsocketProvider;
   currentUserId: string;
+  inline?: boolean;
+  className?: string;
 }
 
-export function PresenceBar({ provider, currentUserId }: PresenceBarProps) {
+export function PresenceBar({
+  provider,
+  currentUserId,
+  inline = false,
+  className = '',
+}: PresenceBarProps) {
   const [onlineUsers, setOnlineUsers] = useState<AwarenessUser[]>([]);
 
   useEffect(() => {
@@ -41,7 +48,11 @@ export function PresenceBar({ provider, currentUserId }: PresenceBarProps) {
   const overflow = onlineUsers.length - MAX_VISIBLE;
 
   return (
-    <div className="presence-bar absolute top-16 right-4 z-10 flex items-center gap-2">
+    <div
+      className={`presence-bar flex items-center gap-2 ${
+        inline ? '' : 'absolute right-4 top-16 z-10'
+      } ${className}`.trim()}
+    >
       {/* Avatar stack */}
       <div className="flex -space-x-2">
         {visibleUsers.map((user) => (

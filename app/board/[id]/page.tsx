@@ -45,7 +45,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
       console.error(`[Board Discovery] Failed to record recent activity for ${board.id}:`, stateError);
     }
 
-    return <BoardCanvas boardId={board.id} boardName={board.name} />;
+    return <BoardCanvas boardId={board.id} boardName={board.name} boardOwnerId={board.created_by} />;
   }
 
   // Board not accessible via RLS — check if it actually exists by trying

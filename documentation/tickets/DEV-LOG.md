@@ -2012,12 +2012,82 @@ Automated benchmark (`tests/unit/dense-board-benchmark.test.ts`) compares prior 
 
 ---
 
+## TICKET-21: Workspace Productivity Controls (Undo/Redo + Clear + Header/Rail Refinement) (Completed)
+
+### 🧠 Plain-English Summary
+- **What this ticket delivered:** a cleaner, faster in-board control surface with high-frequency actions exposed as first-class controls.
+- **Why it mattered:** core authoring workflows now require fewer clicks and provide explicit safety rails around destructive actions.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 21, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered
+- ✅ Refined top workspace bar in `components/board/BoardHeader.tsx`:
+  - back navigation + board name
+  - live save-state indicator (`Saving...` / `Saved`)
+  - collaborator avatar slot (inline presence)
+  - owner-only clear-board action
+  - share action consolidated into header
+- ✅ Converted the canvas toolbar to a vertical left rail in `components/board/Toolbar.tsx` (including undo/redo affordances and icon-first tools).
+- ✅ Added confirmed clear-board flow in `components/board/Canvas.tsx` using `ConfirmDialog` and Yjs transaction-based clearing through `clearAllObjects()` in `lib/yjs/board-doc.ts`.
+- ✅ Kept owner/member semantics intact by passing owner context from `app/board/[id]/page.tsx` → `BoardCanvas` → `Canvas`.
+
+### ✅ Testing & Verification
+- ✅ Unit/integration tests added first, then implementation:
+  - `tests/unit/board-doc.test.ts`
+  - `tests/unit/board-authoring-controls.test.ts`
+  - `tests/integration/yjs-sync.test.ts`
+- ✅ Verification runs:
+  - `npm run lint` (changed files) → pass
+  - `npm test` (full suite) → **288/288 passing**
+  - `npm run build` → pass
+  - `env -u CI npm run test:e2e -- tests/e2e/board.spec.ts --grep "clears board only after confirmation and persists cleared state"` → pass
+
+---
+
+## TICKET-22: Canvas Comment Pins + Threaded Discussions (Completed)
+
+### 🧠 Plain-English Summary
+- **What this ticket delivered:** collaborative on-canvas comment pins with threaded discussion UX anchored to board coordinates.
+- **Why it mattered:** collaborators can now discuss work in place without leaving the canvas context.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 21, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered
+- ✅ Added comment object model extensions in `lib/yjs/board-doc.ts`:
+  - new board types: `comment_thread`, `comment_message`
+  - thread/message helpers (`addCommentReply`, `getCommentThreadMessages`, `setCommentThreadResolved`)
+  - conflict-safe reply strategy using independent message objects per reply key
+- ✅ Added comment interaction flow in `components/board/Canvas.tsx`:
+  - comment tool click-to-place pin
+  - open/reopen thread panel
+  - reply composer and resolve/reopen controls
+  - escape/cancel close handling and empty-thread cleanup
+- ✅ Added dedicated threaded UI component:
+  - `components/board/CommentThreadPanel.tsx`
+- ✅ Ensured realtime + persistence behavior through existing Yjs sync path.
+
+### ✅ Testing & Verification
+- ✅ Added and validated automated coverage:
+  - unit: `tests/unit/board-doc.test.ts` (comment helper behavior)
+  - integration: `tests/integration/yjs-sync.test.ts` (concurrent reply merge safety)
+  - e2e: `tests/e2e/board.spec.ts` (create/reopen/resolve thread flow)
+- ✅ Verification run:
+  - `env -u CI npm run test:e2e -- tests/e2e/board.spec.ts --grep "creates and reopens a comment thread from a canvas pin"` → pass
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress
-- **Tickets Completed:** 19/23 tracked tickets (through TICKET-19 + stabilization pass)
+- **Tickets Completed:** core roadmap now includes completed TICKET-21 and TICKET-22 deliveries
 - **Build:** ✅ Clean (frontend + server)
-- **Tests:** ✅ Unit/integration and board e2e regression passing (`npm test` + `CI= npm run test:e2e -- tests/e2e/board.spec.ts`)
+- **Tests:** ✅ Unit/integration and targeted board e2e regression passing (`npm test` + `env -u CI npm run test:e2e -- tests/e2e/board.spec.ts --grep ...`)
 - **Lint:** ✅ Zero errors (warnings only)
 
 ### ✅ Current Status
@@ -2044,9 +2114,11 @@ Automated benchmark (`tests/unit/dense-board-benchmark.test.ts`) compares prior 
 17. ✅ High-Object Performance Deep Dive (incremental object patching, dense-board stress coverage, and benchmark-backed improvements)
 18. ✅ Board Discovery Metadata (Home/Recent/Starred/search with per-user state and persistence)
 19. ✅ Quick-Start Templates + Deterministic Board Seeding (Home template gallery + API seeding through Yjs path)
+20. ✅ Workspace Productivity Controls (header/rail refinement + clear-board safety + undo/redo workflow hardening)
+21. ✅ Canvas Comment Pins + Threaded Discussions (pin placement + threaded replies + resolve flow + sync-safe reply model)
 
 ### 📈 Next Priorities
-1. **Functional expansion:** TICKET-18.1, TICKET-20, TICKET-21, and TICKET-22 backlog execution
+1. **Functional expansion:** finalize remaining backlog items (TICKET-18.1, TICKET-20)
 2. **Final submission packaging:** social post, AI interview walkthrough prep, and portal upload bundle
 
 ### 💡 Key Learnings So Far

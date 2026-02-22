@@ -8,7 +8,9 @@ export type BoardObjectType =
   | 'freehand_stroke'
   | 'connector'
   | 'frame'
-  | 'text';
+  | 'text'
+  | 'comment_thread'
+  | 'comment_message';
 
 export interface BoardObject {
   id: string;
@@ -22,6 +24,26 @@ export interface BoardObject {
   properties: Record<string, unknown>;
   createdBy: string;
   updatedAt: string;
+}
+
+export type CommentThreadStatus = 'open' | 'resolved';
+
+export interface CommentReplyInput {
+  threadId: string;
+  messageId: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  createdAt?: string;
+}
+
+export interface CommentMessage {
+  id: string;
+  threadId: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
 }
 
 export interface BoardDoc {
@@ -114,6 +136,18 @@ export function removeObject(
 }
 
 /**
+ * Remove every object from the board.
+ * Returns the number of deleted objects.
+ */
+export function clearAllObjects(objects: Y.Map<BoardObject>): number {
+  const keys = Array.from(objects.keys());
+  for (const key of keys) {
+    objects.delete(key);
+  }
+  return keys.length;
+}
+
+/**
  * Helper to get all objects from the board
  */
 export function getAllObjects(objects: Y.Map<BoardObject>): BoardObject[] {
@@ -122,6 +156,147 @@ export function getAllObjects(objects: Y.Map<BoardObject>): BoardObject[] {
     result.push(value);
   });
   return result;
+}
+
+function parseCommentStatus(value: unknown): CommentThreadStatus {
+  return value === 'resolved' ? 'resolved' : 'open';
+}
+
+function getThreadStatus(object: BoardObject): CommentThreadStatus {
+  return parseCommentStatus(object.properties.status);
+}
+
+/**
+ * Append a reply to a comment thread by adding a standalone comment_message object.
+ * This keeps concurrent replies conflict-safe because each reply has its own Y.Map key.
+ */
+export function addCommentReply(
+  objects: Y.Map<BoardObject>,
+  input: CommentReplyInput,
+): BoardObject | undefined {
+  const thread = objects.get(input.threadId);
+  if (!thread || thread.type !== 'comment_thread') {
+    return undefined;
+  }
+  if (getThreadStatus(thread) === 'resolved') {
+    return undefined;
+  }
+
+  const trimmedText = input.text.trim();
+  if (trimmedText.length === 0) {
+    return undefined;
+  }
+
+  const createdAt = input.createdAt ?? new Date().toISOString();
+  const replyObject: BoardObject = {
+    id: input.messageId,
+    type: 'comment_message',
+    x: thread.x,
+    y: thread.y,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    zIndex: thread.zIndex,
+    properties: {
+      threadId: input.threadId,
+      text: trimmedText,
+      authorId: input.authorId,
+      authorName: input.authorName,
+      createdAt,
+    },
+    createdBy: input.authorId,
+    updatedAt: createdAt,
+  };
+
+  objects.set(replyObject.id, replyObject);
+  updateObject(objects, input.threadId, {
+    updatedAt: createdAt,
+  });
+  return replyObject;
+}
+
+export function getCommentThreadMessages(
+  objects: Y.Map<BoardObject>,
+  threadId: string,
+): CommentMessage[] {
+  const messages: CommentMessage[] = [];
+
+  objects.forEach((object) => {
+    if (object.type !== 'comment_message') return;
+
+    const objectThreadId =
+      typeof object.properties.threadId === 'string'
+        ? object.properties.threadId
+        : '';
+    if (objectThreadId !== threadId) return;
+
+    const text = typeof object.properties.text === 'string' ? object.properties.text : '';
+    const authorId =
+      typeof object.properties.authorId === 'string'
+        ? object.properties.authorId
+        : object.createdBy;
+    const authorName =
+      typeof object.properties.authorName === 'string'
+        ? object.properties.authorName
+        : 'Anonymous';
+    const createdAt =
+      typeof object.properties.createdAt === 'string'
+        ? object.properties.createdAt
+        : object.updatedAt;
+
+    messages.push({
+      id: object.id,
+      threadId: objectThreadId,
+      text,
+      authorId,
+      authorName,
+      createdAt,
+    });
+  });
+
+  messages.sort((a, b) => {
+    const aTime = Date.parse(a.createdAt);
+    const bTime = Date.parse(b.createdAt);
+    const aFinite = Number.isFinite(aTime);
+    const bFinite = Number.isFinite(bTime);
+    if (aFinite && bFinite && aTime !== bTime) {
+      return aTime - bTime;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  return messages;
+}
+
+export function setCommentThreadResolved(
+  objects: Y.Map<BoardObject>,
+  threadId: string,
+  resolved: boolean,
+): boolean {
+  const thread = objects.get(threadId);
+  if (!thread || thread.type !== 'comment_thread') {
+    return false;
+  }
+
+  const nowIso = new Date().toISOString();
+  const nextStatus = resolved ? 'resolved' : 'open';
+  const nextProperties: Record<string, unknown> = {
+    ...thread.properties,
+    status: nextStatus,
+  };
+
+  if (resolved) {
+    nextProperties.resolvedAt = nowIso;
+  } else {
+    delete nextProperties.resolvedAt;
+  }
+
+  objects.set(threadId, {
+    ...thread,
+    properties: nextProperties,
+    updatedAt: nowIso,
+  });
+  return true;
 }
 
 /**

@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { createBoardDoc, addObject, getAllObjects, updateObject, removeObject } from '@/lib/yjs/board-doc';
+import {
+  createBoardDoc,
+  addObject,
+  addCommentReply,
+  getAllObjects,
+  getCommentThreadMessages,
+  updateObject,
+  removeObject,
+} from '@/lib/yjs/board-doc';
 
 function makeStickyNote(id: string, overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -16,6 +24,24 @@ function makeStickyNote(id: string, overrides: Partial<Record<string, unknown>> 
     createdBy: 'user-123',
     updatedAt: new Date().toISOString(),
     ...overrides,
+  };
+}
+
+function makeCommentThread(id: string) {
+  return {
+    id,
+    type: 'comment_thread' as const,
+    x: 320,
+    y: 260,
+    width: 28,
+    height: 28,
+    rotation: 0,
+    zIndex: 1,
+    properties: {
+      status: 'open',
+    },
+    createdBy: 'user-123',
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -308,6 +334,42 @@ describe('Yjs Board Document Sync', () => {
       for (let i = 1; i <= 3; i++) {
         expect(objects2.get(`sticky${i}`)).toBeDefined();
       }
+    });
+
+    it('keeps concurrent comment replies when two users reply offline and resync', () => {
+      const { doc: doc1, objects: objects1 } = createBoardDoc();
+      const { doc: doc2, objects: objects2 } = createBoardDoc();
+
+      addObject(objects1, makeCommentThread('thread-1'));
+      Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+
+      addCommentReply(objects1, {
+        threadId: 'thread-1',
+        messageId: 'reply-a',
+        text: 'Reply from user A',
+        authorId: 'user-a',
+        authorName: 'User A',
+        createdAt: '2026-02-21T09:00:01.000Z',
+      });
+      addCommentReply(objects2, {
+        threadId: 'thread-1',
+        messageId: 'reply-b',
+        text: 'Reply from user B',
+        authorId: 'user-b',
+        authorName: 'User B',
+        createdAt: '2026-02-21T09:00:02.000Z',
+      });
+
+      Y.applyUpdate(doc1, Y.encodeStateAsUpdate(doc2));
+      Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+
+      const doc1Messages = getCommentThreadMessages(objects1, 'thread-1');
+      const doc2Messages = getCommentThreadMessages(objects2, 'thread-1');
+
+      expect(doc1Messages).toHaveLength(2);
+      expect(doc2Messages).toHaveLength(2);
+      expect(doc1Messages.map((message) => message.id).sort()).toEqual(['reply-a', 'reply-b']);
+      expect(doc2Messages.map((message) => message.id).sort()).toEqual(['reply-a', 'reply-b']);
     });
   });
 

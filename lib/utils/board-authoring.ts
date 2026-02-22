@@ -3,6 +3,7 @@ export type BoardTool =
   | 'hand'
   | 'pencil'
   | 'eraser'
+  | 'comment'
   | 'sticky'
   | 'rectangle'
   | 'circle'
@@ -25,7 +26,7 @@ export function canPanStage(tool: BoardTool): boolean {
 }
 
 export function shouldEnableObjectInteractions(tool: BoardTool): boolean {
-  return tool !== 'hand' && tool !== 'eraser' && tool !== 'pencil';
+  return tool !== 'hand' && tool !== 'eraser' && tool !== 'pencil' && tool !== 'comment';
 }
 
 export function shouldStartMarqueeSelection(
@@ -54,7 +55,8 @@ export function getStageCursor(tool: BoardTool, isPanning: boolean): string {
     tool === 'line' ||
     tool === 'frame' ||
     tool === 'pencil' ||
-    tool === 'eraser'
+    tool === 'eraser' ||
+    tool === 'comment'
   ) {
     return 'crosshair';
   }
