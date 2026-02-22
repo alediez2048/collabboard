@@ -9,6 +9,7 @@ import {
   validateUpdateTextArgs,
   validateChangeColorArgs,
   validateResizeObjectArgs,
+  validateFindObjectsArgs,
 } from '@/lib/ai-agent/tools';
 
 describe('AI Tool Definitions', () => {
@@ -23,6 +24,7 @@ describe('AI Tool Definitions', () => {
     expect(names).toContain('changeColor');
     expect(names).toContain('resizeObject');
     expect(names).toContain('getBoardState');
+    expect(names).toContain('findObjects');
   });
 
   it('each tool has type function, name, description, and parameters', () => {
@@ -34,8 +36,8 @@ describe('AI Tool Definitions', () => {
     }
   });
 
-  it('has at least 9 tools', () => {
-    expect(AI_TOOLS.length).toBeGreaterThanOrEqual(9);
+  it('has at least 10 tools', () => {
+    expect(AI_TOOLS.length).toBeGreaterThanOrEqual(10);
   });
 
   it('includes connector style in schema for createConnector', () => {
@@ -200,5 +202,27 @@ describe('validateResizeObjectArgs', () => {
   it('rejects zero or negative dimensions', () => {
     expect(validateResizeObjectArgs({ objectId: 'abc', width: 0, height: 100 }).valid).toBe(false);
     expect(validateResizeObjectArgs({ objectId: 'abc', width: 100, height: -1 }).valid).toBe(false);
+  });
+});
+
+describe('validateFindObjectsArgs', () => {
+  it('accepts type-based queries', () => {
+    const result = validateFindObjectsArgs({ type: 'sticky_note' });
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts coordinate-based proximity queries', () => {
+    const result = validateFindObjectsArgs({ nearX: 300, nearY: 200 });
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects empty query object', () => {
+    const result = validateFindObjectsArgs({});
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects nearX without nearY', () => {
+    const result = validateFindObjectsArgs({ nearX: 300 });
+    expect(result.valid).toBe(false);
   });
 });

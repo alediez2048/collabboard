@@ -26,6 +26,21 @@ function makeBridgeBatchSuccess(results: Array<{ affectedObjectIds: string[] }>)
   };
 }
 
+function makeBridgeFindObjectsSuccess() {
+  return {
+    ok: true,
+    json: async () => ({
+      totalObjects: 120,
+      returnedCount: 2,
+      objectIds: ['note-20', 'note-21'],
+      objects: [
+        { id: 'note-20', type: 'sticky_note' },
+        { id: 'note-21', type: 'sticky_note' },
+      ],
+    }),
+  };
+}
+
 function makeBridgeHtmlErrorResponse() {
   return {
     ok: false,
@@ -217,6 +232,63 @@ describe('executeToolCalls', () => {
 
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes getBoardState context filters through to bridge payload', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        totalObjects: 8,
+        returnedCount: 2,
+        objects: [],
+      }),
+    });
+
+    const result = await executeToolCalls(
+      [makeToolCall('getBoardState', { type: 'sticky_note', color: '#ffeb3b', textContains: 'idea' })],
+      'board-abc',
+      'user-1',
+    );
+
+    expect(result.success).toBe(true);
+    const [calledUrl, calledInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain('/ai/board-state');
+    const body = JSON.parse(String(calledInit.body)) as {
+      boardId: string;
+      context?: Record<string, unknown>;
+    };
+    expect(body.boardId).toBe('board-abc');
+    expect(body.context).toEqual({
+      type: 'sticky_note',
+      color: '#ffeb3b',
+      textContains: 'idea',
+    });
+  });
+
+  it('handles findObjects tool call via find-objects bridge endpoint', async () => {
+    mockFetch.mockResolvedValueOnce(makeBridgeFindObjectsSuccess());
+
+    const result = await executeToolCalls(
+      [makeToolCall('findObjects', { type: 'sticky_note', color: '#ffeb3b', textContains: 'idea' })],
+      'board-abc',
+      'user-1',
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.objectsAffected).toHaveLength(0);
+    expect(result.actions[0]?.tool).toBe('findObjects');
+    const [calledUrl, calledInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain('/ai/find-objects');
+    const body = JSON.parse(String(calledInit.body)) as {
+      boardId: string;
+      query: Record<string, unknown>;
+    };
+    expect(body.boardId).toBe('board-abc');
+    expect(body.query).toEqual({
+      type: 'sticky_note',
+      color: '#ffeb3b',
+      textContains: 'idea',
+    });
   });
 
   it('batches high-volume mutation runs into a single bridge request', async () => {

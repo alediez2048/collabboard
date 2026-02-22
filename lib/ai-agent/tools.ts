@@ -59,6 +59,23 @@ export interface ResizeObjectArgs {
   height: number;
 }
 
+export interface FindObjectsArgs {
+  type?: string;
+  color?: string;
+  textContains?: string;
+  inFrameId?: string;
+  nearX?: number;
+  nearY?: number;
+  maxResults?: number;
+  selectedObjectIds?: string[];
+  viewport?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
 // OpenAI tool definitions following the function-calling schema from the 1.3 reference repo
 export const AI_TOOLS: ChatCompletionFunctionTool[] = [
   {
@@ -208,6 +225,42 @@ export const AI_TOOLS: ChatCompletionFunctionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'findObjects',
+      description: 'Find specific board objects using structured filters and return concrete object IDs for follow-up mutation tools.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: 'Optional object type filter (e.g. sticky_note, frame, rectangle).' },
+          color: { type: 'string', description: 'Optional color filter as a hex string (e.g. #ffeb3b).' },
+          textContains: { type: 'string', description: 'Optional case-insensitive text/title substring filter.' },
+          inFrameId: { type: 'string', description: 'Optional frame object ID to scope matches to objects inside that frame.' },
+          nearX: { type: 'number', description: 'Optional x coordinate for proximity ranking.' },
+          nearY: { type: 'number', description: 'Optional y coordinate for proximity ranking.' },
+          maxResults: { type: 'number', description: 'Optional max number of matches to return (1-50).' },
+          selectedObjectIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional selected object IDs to prioritize in matching.',
+          },
+          viewport: {
+            type: 'object',
+            properties: {
+              x: { type: 'number' },
+              y: { type: 'number' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+            },
+            required: ['x', 'y', 'width', 'height'],
+            description: 'Optional viewport bounds to prioritize visible objects.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // Validators — validate parsed arguments server-side before touching Yjs
@@ -284,5 +337,52 @@ export function validateResizeObjectArgs(args: Record<string, unknown>): Validat
   if (!isNonEmptyString(args.objectId)) return { valid: false, error: 'objectId must be a non-empty string' };
   if (!isNumber(args.width) || args.width <= 0) return { valid: false, error: 'width must be a positive number' };
   if (!isNumber(args.height) || args.height <= 0) return { valid: false, error: 'height must be a positive number' };
+  return { valid: true };
+}
+
+function isViewport(value: unknown): value is { x: number; y: number; width: number; height: number } {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    isNumber(record.x)
+    && isNumber(record.y)
+    && isNumber(record.width)
+    && isNumber(record.height)
+    && record.width > 0
+    && record.height > 0
+  );
+}
+
+export function validateFindObjectsArgs(args: Record<string, unknown>): ValidationResult {
+  const hasType = isNonEmptyString(args.type);
+  const hasColor = isNonEmptyString(args.color);
+  const hasTextContains = isNonEmptyString(args.textContains);
+  const hasInFrameId = isNonEmptyString(args.inFrameId);
+  const hasSelectedObjectIds = Array.isArray(args.selectedObjectIds)
+    && args.selectedObjectIds.some((value) => isNonEmptyString(value));
+  const hasViewport = args.viewport !== undefined;
+  const hasNearX = args.nearX !== undefined;
+  const hasNearY = args.nearY !== undefined;
+  const hasNearPoint = hasNearX || hasNearY;
+
+  if (hasNearX !== hasNearY) {
+    return { valid: false, error: 'nearX and nearY must be provided together' };
+  }
+  if (hasNearPoint && (!isNumber(args.nearX) || !isNumber(args.nearY))) {
+    return { valid: false, error: 'nearX and nearY must be numbers' };
+  }
+
+  if (args.maxResults !== undefined && (!isNumber(args.maxResults) || args.maxResults <= 0 || args.maxResults > 50)) {
+    return { valid: false, error: 'maxResults must be a number between 1 and 50' };
+  }
+
+  if (hasViewport && !isViewport(args.viewport)) {
+    return { valid: false, error: 'viewport must include numeric x, y, width, and height (>0)' };
+  }
+
+  if (!hasType && !hasColor && !hasTextContains && !hasInFrameId && !hasNearPoint && !hasSelectedObjectIds && !hasViewport) {
+    return { valid: false, error: 'findObjects requires at least one query filter' };
+  }
+
   return { valid: true };
 }

@@ -351,6 +351,37 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
     () => computeCanvasViewport(dimensions, pan, zoom, 200),
     [dimensions, pan, zoom],
   );
+  const aiCommandContext = useMemo(() => {
+    const context: {
+      selectedObjectIds?: string[];
+      viewport?: { x: number; y: number; width: number; height: number };
+    } = {};
+
+    if (selectedObjectIds.length > 0) {
+      context.selectedObjectIds = selectedObjectIds.slice(0, 50);
+    }
+
+    if (zoom > 0 && dimensions.width > 0 && dimensions.height > 0) {
+      const viewport = {
+        x: -pan.x / zoom,
+        y: -pan.y / zoom,
+        width: dimensions.width / zoom,
+        height: dimensions.height / zoom,
+      };
+      if (
+        Number.isFinite(viewport.x)
+        && Number.isFinite(viewport.y)
+        && Number.isFinite(viewport.width)
+        && Number.isFinite(viewport.height)
+        && viewport.width > 0
+        && viewport.height > 0
+      ) {
+        context.viewport = viewport;
+      }
+    }
+
+    return Object.keys(context).length > 0 ? context : undefined;
+  }, [selectedObjectIds, zoom, dimensions.width, dimensions.height, pan.x, pan.y]);
 
   const visibleBoardObjects = useMemo(() => {
     // Culling has overhead; skip it on small boards.
@@ -2571,7 +2602,11 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
       />
 
       {/* AI Command Bar */}
-      <AICommandBar boardId={boardId} onCommandMetrics={handleAICommandMetrics} />
+      <AICommandBar
+        boardId={boardId}
+        requestContext={aiCommandContext}
+        onCommandMetrics={handleAICommandMetrics}
+      />
 
       {/* Hidden board ID for testing */}
       <div className="sr-only" data-testid="board-id">

@@ -7,8 +7,9 @@ import {
   validateUpdateTextArgs,
   validateChangeColorArgs,
   validateResizeObjectArgs,
+  validateFindObjectsArgs,
 } from '@/lib/ai-agent/tools';
-import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
+import type { BoardStateScopeContext, BoardStateViewport, ScopedBoardState } from '@/lib/ai-agent/scoped-state';
 
 export interface ToolCallInput {
   id: string;
@@ -71,6 +72,18 @@ interface BridgeStateResponse extends ScopedBoardState {
   error?: string;
 }
 
+interface BridgeFindObjectsResponse extends ScopedBoardState {
+  objectIds: string[];
+  error?: string;
+}
+
+interface FindObjectsQuery extends BoardStateScopeContext {
+  inFrameId?: string;
+  nearX?: number;
+  nearY?: number;
+  maxResults?: number;
+}
+
 function getRealtimeServerUrl(): string {
   return process.env.REALTIME_SERVER_URL ?? 'http://localhost:4000';
 }
@@ -119,6 +132,7 @@ function validateArgs(
     case 'updateText': return validateUpdateTextArgs(args);
     case 'changeColor': return validateChangeColorArgs(args);
     case 'getBoardState': return { valid: true };
+    case 'findObjects': return validateFindObjectsArgs(args);
     default: return { valid: false, error: `Unknown tool: ${toolName}` };
   }
 }
@@ -156,15 +170,113 @@ async function callBridgeMutateBatch(
 
 async function callBridgeBoardState(
   boardId: string,
+  context: BoardStateScopeContext | undefined,
   traceId?: string,
 ): Promise<BridgeStateResponse> {
   const url = `${getRealtimeServerUrl()}/ai/board-state`;
+  const payload: { boardId: string; context?: BoardStateScopeContext } = { boardId };
+  if (context) {
+    payload.context = context;
+  }
   const res = await fetch(url, {
     method: 'POST',
     headers: buildBridgeHeaders(traceId),
-    body: JSON.stringify({ boardId }),
+    body: JSON.stringify(payload),
   });
   return res.json() as Promise<BridgeStateResponse>;
+}
+
+async function callBridgeFindObjects(
+  boardId: string,
+  query: FindObjectsQuery,
+  traceId?: string,
+): Promise<BridgeFindObjectsResponse> {
+  const url = `${getRealtimeServerUrl()}/ai/find-objects`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: buildBridgeHeaders(traceId),
+    body: JSON.stringify({ boardId, query }),
+  });
+  return res.json() as Promise<BridgeFindObjectsResponse>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toViewport(value: unknown): BoardStateViewport | undefined {
+  if (!isRecord(value)) return undefined;
+  const x = value.x;
+  const y = value.y;
+  const width = value.width;
+  const height = value.height;
+  if (
+    typeof x !== 'number'
+    || typeof y !== 'number'
+    || typeof width !== 'number'
+    || typeof height !== 'number'
+    || width <= 0
+    || height <= 0
+  ) {
+    return undefined;
+  }
+  return { x, y, width, height };
+}
+
+function toBoardStateScopeContext(args: Record<string, unknown>): BoardStateScopeContext | undefined {
+  const context: BoardStateScopeContext = {};
+
+  if (typeof args.command === 'string' && args.command.trim().length > 0) {
+    context.command = args.command.trim();
+  }
+
+  if (typeof args.type === 'string' && args.type.trim().length > 0) {
+    context.type = args.type.trim();
+  }
+
+  if (typeof args.color === 'string' && args.color.trim().length > 0) {
+    context.color = args.color.trim();
+  }
+
+  if (typeof args.textContains === 'string' && args.textContains.trim().length > 0) {
+    context.textContains = args.textContains.trim();
+  }
+
+  if (Array.isArray(args.selectedObjectIds)) {
+    const selectedObjectIds = args.selectedObjectIds
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (selectedObjectIds.length > 0) {
+      context.selectedObjectIds = selectedObjectIds;
+    }
+  }
+
+  const viewport = toViewport(args.viewport);
+  if (viewport) {
+    context.viewport = viewport;
+  }
+
+  return Object.keys(context).length > 0 ? context : undefined;
+}
+
+function toFindObjectsQuery(args: Record<string, unknown>): FindObjectsQuery {
+  const query: FindObjectsQuery = { ...(toBoardStateScopeContext(args) ?? {}) };
+
+  if (typeof args.inFrameId === 'string' && args.inFrameId.trim().length > 0) {
+    query.inFrameId = args.inFrameId.trim();
+  }
+
+  if (typeof args.nearX === 'number' && typeof args.nearY === 'number') {
+    query.nearX = args.nearX;
+    query.nearY = args.nearY;
+  }
+
+  if (typeof args.maxResults === 'number') {
+    query.maxResults = args.maxResults;
+  }
+
+  return query;
 }
 
 function emitTraceEvent(
@@ -245,7 +357,8 @@ export async function executeToolCalls(
     // getBoardState is read-only — uses board-state bridge endpoint
     if (toolName === 'getBoardState') {
       try {
-        const state = await callBridgeBoardState(boardId, traceOptions?.traceId);
+        const boardStateContext = toBoardStateScopeContext(args);
+        const state = await callBridgeBoardState(boardId, boardStateContext, traceOptions?.traceId);
         actions.push({ tool: toolName, args, result: `Returned ${state.returnedCount} of ${state.totalObjects} objects` });
         toolOutputs.push({
           toolCallId: call.id,
@@ -257,6 +370,7 @@ export async function executeToolCalls(
           index,
           returnedCount: state.returnedCount,
           totalObjects: state.totalObjects,
+          hasContext: Boolean(boardStateContext),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Bridge request failed';
@@ -264,6 +378,39 @@ export async function executeToolCalls(
           toolName,
           index,
           reason: 'bridge-state-failure',
+          error: message,
+        });
+        return { success: false, actions, objectsAffected, toolOutputs, error: message };
+      }
+      continue;
+    }
+
+    if (toolName === 'findObjects') {
+      try {
+        const query = toFindObjectsQuery(args);
+        const result = await callBridgeFindObjects(boardId, query, traceOptions?.traceId);
+        actions.push({
+          tool: toolName,
+          args,
+          result: `Found ${result.returnedCount} objects`,
+        });
+        toolOutputs.push({
+          toolCallId: call.id,
+          tool: toolName,
+          output: result,
+        });
+        emitTraceEvent(traceOptions, 'executor-tool-success', {
+          toolName,
+          index,
+          returnedCount: result.returnedCount,
+          totalObjects: result.totalObjects,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Bridge request failed';
+        emitTraceEvent(traceOptions, 'executor-tool-failure', {
+          toolName,
+          index,
+          reason: 'bridge-find-objects-failure',
           error: message,
         });
         return { success: false, actions, objectsAffected, toolOutputs, error: message };
@@ -290,7 +437,7 @@ export async function executeToolCalls(
     for (let lookahead = index + 1; lookahead < toolCalls.length; lookahead += 1) {
       const nextCall = toolCalls[lookahead];
       const nextToolName = nextCall.function.name;
-      if (nextToolName === 'getBoardState') break;
+      if (nextToolName === 'getBoardState' || nextToolName === 'findObjects') break;
       if (!MUTATION_TOOLS.has(nextToolName)) break;
 
       let nextArgs: Record<string, unknown>;

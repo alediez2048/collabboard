@@ -64,18 +64,18 @@ describe('planComplexCommand', () => {
     expect(colors.size).toBeGreaterThan(1);
   });
 
-  it('supports brainstorm template commands with deterministic seeded notes', () => {
-    const firstPass = planComplexCommand('Create a brainstorm board');
+  it('supports lean canvas template commands with deterministic seeded sections', () => {
+    const firstPass = planComplexCommand('Create a lean canvas');
     expect(firstPass).not.toBeNull();
     expect(firstPass?.requiresBoardState).toBe(true);
     expect(firstPass?.steps).toHaveLength(0);
 
-    const planned = planComplexCommand('Create a brainstorm board', makeScopedState([]));
+    const planned = planComplexCommand('Create a lean canvas', makeScopedState([]));
     expect(planned).not.toBeNull();
     expect(planned?.requiresBoardState).toBe(false);
 
-    const stickySteps = (planned?.steps ?? []).filter((step) => step.tool === 'createStickyNote');
-    expect(stickySteps.length).toBeGreaterThanOrEqual(8);
+    const frameSteps = (planned?.steps ?? []).filter((step) => step.tool === 'createFrame');
+    expect(frameSteps).toHaveLength(11);
   });
 
   it('marks sticky-note grid arrangement as requiring board state before planning', () => {
@@ -217,7 +217,9 @@ describe('planComplexCommand', () => {
     expect(resizeSteps).toHaveLength(3);
     expect(moveSteps).toHaveLength(3);
     expect(plan?.verification?.type).toBe('kanban-layout');
-    expect(plan?.verification?.stickyPlacements).toHaveLength(3);
+    if (plan?.verification?.type === 'kanban-layout') {
+      expect(plan.verification.stickyPlacements).toHaveLength(3);
+    }
   });
 
   it('returns corrective Kanban steps when post-layout verification fails', () => {
@@ -242,5 +244,46 @@ describe('planComplexCommand', () => {
     expect(verification.correctiveSteps.some((step) => step.tool === 'createFrame')).toBe(true);
     expect(verification.correctiveSteps.some((step) => step.tool === 'resizeObject')).toBe(true);
     expect(verification.correctiveSteps.some((step) => step.tool === 'moveObject')).toBe(true);
+  });
+
+  it('marks color-group move commands as requiring board state', () => {
+    const plan = planComplexCommand('Move all pink sticky notes to the right side');
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(true);
+    expect(plan?.steps).toHaveLength(0);
+  });
+
+  it('builds deterministic move steps for moving all notes of a color to one side', () => {
+    const boardState = makeScopedState([
+      makeObject({ id: 'pink-1', x: 140, y: 120, properties: { text: 'A', color: '#ec4899' } }),
+      makeObject({ id: 'pink-2', x: 220, y: 420, properties: { text: 'B', color: '#ec4899' } }),
+      makeObject({ id: 'blue-1', x: 500, y: 220, properties: { text: 'C', color: '#60a5fa' } }),
+    ]);
+
+    const plan = planComplexCommand('Move all pink sticky notes to the right side', boardState);
+    expect(plan).not.toBeNull();
+    expect(plan?.requiresBoardState).toBe(false);
+    expect((plan?.steps ?? []).every((step) => step.tool === 'moveObject')).toBe(true);
+    expect(plan?.steps).toHaveLength(2);
+    expect(plan?.verification?.type).toBe('color-move-group');
+  });
+
+  it('returns corrective steps when color-group move verification drifts', () => {
+    const sourceState = makeScopedState([
+      makeObject({ id: 'pink-1', x: 140, y: 120, properties: { text: 'A', color: '#ec4899' } }),
+      makeObject({ id: 'pink-2', x: 220, y: 420, properties: { text: 'B', color: '#ec4899' } }),
+    ]);
+    const plan = planComplexCommand('Move all pink sticky notes to the right side', sourceState);
+    expect(plan).not.toBeNull();
+
+    const driftedState = makeScopedState([
+      makeObject({ id: 'pink-1', x: 100, y: 50, properties: { text: 'A', color: '#ffeb3b' } }),
+      makeObject({ id: 'pink-2', x: 120, y: 70, properties: { text: 'B', color: '#ffeb3b' } }),
+    ]);
+
+    const verification = verifyPlanExecution(plan!, driftedState);
+    expect(verification.passed).toBe(false);
+    expect(verification.correctiveSteps.some((step) => step.tool === 'moveObject')).toBe(true);
+    expect(verification.correctiveSteps.some((step) => step.tool === 'changeColor')).toBe(true);
   });
 });

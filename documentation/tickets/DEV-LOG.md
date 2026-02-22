@@ -2082,6 +2082,52 @@ Automated benchmark (`tests/unit/dense-board-benchmark.test.ts`) compares prior 
 
 ---
 
+## Post-Ticket Stabilization: AI Object Targeting Accuracy Hardening (Completed)
+
+### 🧠 Plain-English Summary
+- **What this pass delivered:** a full accuracy hardening layer for AI board edits, centered on better object resolution and safer mutation flow.
+- **Why it mattered:** natural-language edit commands on larger boards were vulnerable to wrong-object targeting when context was under-scoped or IDs drifted.
+
+### 📋 Metadata
+- **Status:** Complete
+- **Completed:** Feb 21, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered
+- ✅ Replaced naive first-50 object scoping with relevance-ranked scoped state:
+  - `lib/ai-agent/scoped-state.ts`
+  - threaded through `app/api/ai/command/route.ts`, `lib/ai-agent/executor.ts`, and `server/src/ai-routes.ts`
+- ✅ Added structured read-resolution tooling:
+  - new `findObjects` function-calling tool in `lib/ai-agent/tools.ts`
+  - executor support in `lib/ai-agent/executor.ts`
+  - bridge endpoint `POST /ai/find-objects` in `server/src/ai-routes.ts`
+- ✅ Enforced read-before-mutate for edit-style intents in route orchestration:
+  - forced read-pass when model emits direct mutation without resolution context
+  - one-pass stale-ID retry loop (re-read + regenerate + replay) in `app/api/ai/command/route.ts`
+- ✅ Expanded deterministic planner coverage + verification:
+  - deterministic color-group move planning (e.g., pink notes to right side)
+  - new verification mode with corrective steps (`moveObject` / `changeColor`) in `lib/ai-agent/planner.ts`
+- ✅ Added UI context hints into AI requests:
+  - selection + viewport context now sent by `components/board/Canvas.tsx` via `components/board/AICommandBar.tsx`
+- ✅ Added structured telemetry fields for accuracy tuning:
+  - resolution source, candidate count, retry count, verification corrections in route trace metadata
+
+### ✅ Testing & Verification
+- ✅ Added/updated unit + integration coverage:
+  - `tests/unit/ai-agent/scoped-state.test.ts`
+  - `tests/unit/ai-agent/tools.test.ts`
+  - `tests/unit/ai-agent/executor.test.ts`
+  - `tests/unit/ai-agent/planner.test.ts`
+  - `tests/integration/ai-agent/route.test.ts`
+  - `tests/integration/ai-agent/requirements-matrix.test.ts`
+- ✅ Added E2E targeting scenario in `tests/e2e/board.spec.ts`:
+  - AI color-group move targeting case for mixed-color boards
+- ✅ Validation run:
+  - `vitest run tests/unit/ai-agent/*.test.ts tests/integration/ai-agent/*.test.ts tests/unit/board-authoring-controls.test.ts tests/unit/multi-select-drag.test.ts` → **147/147 passing**
+- ✅ Lint diagnostics on changed files reported no new lint errors.
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress

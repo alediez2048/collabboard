@@ -50,6 +50,35 @@ interface MutateBatchRequest {
 
 interface BoardStateRequest {
   boardId: string;
+  context?: BoardStateContext;
+}
+
+interface BoardStateViewport {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface BoardStateContext {
+  command?: string;
+  type?: string;
+  color?: string;
+  textContains?: string;
+  selectedObjectIds?: string[];
+  viewport?: BoardStateViewport;
+}
+
+interface FindObjectsQuery extends BoardStateContext {
+  inFrameId?: string;
+  nearX?: number;
+  nearY?: number;
+  maxResults?: number;
+}
+
+interface FindObjectsRequest {
+  boardId: string;
+  query?: FindObjectsQuery;
 }
 
 // ── Auth middleware ────────────────────────────────────────────────────────────
@@ -127,6 +156,301 @@ function getAllObjects(objects: Y.Map<BoardObject>): BoardObject[] {
   const result: BoardObject[] = [];
   objects.forEach((v) => result.push(v));
   return result;
+}
+
+function normalize(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function toTypeToken(type: string): string {
+  return normalize(type).replace(/[\s-]+/g, '_');
+}
+
+function getObjectText(object: BoardObject): string {
+  const maybeText = object.properties.text;
+  const maybeTitle = object.properties.title;
+  const text =
+    typeof maybeText === 'string'
+      ? maybeText
+      : typeof maybeTitle === 'string'
+        ? maybeTitle
+        : '';
+  return normalize(text);
+}
+
+function getObjectColor(object: BoardObject): string {
+  const keys = ['color', 'fillColor', 'strokeColor'] as const;
+  for (const key of keys) {
+    const value = object.properties[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return normalize(value);
+    }
+  }
+  return '';
+}
+
+function intersectsViewport(object: BoardObject, viewport: BoardStateViewport): boolean {
+  const right = object.x + object.width;
+  const bottom = object.y + object.height;
+  const viewportRight = viewport.x + viewport.width;
+  const viewportBottom = viewport.y + viewport.height;
+  return (
+    object.x < viewportRight
+    && right > viewport.x
+    && object.y < viewportBottom
+    && bottom > viewport.y
+  );
+}
+
+function distanceToViewportCenter(object: BoardObject, viewport: BoardStateViewport): number {
+  const objectCenterX = object.x + (object.width / 2);
+  const objectCenterY = object.y + (object.height / 2);
+  const viewportCenterX = viewport.x + (viewport.width / 2);
+  const viewportCenterY = viewport.y + (viewport.height / 2);
+
+  return Math.hypot(objectCenterX - viewportCenterX, objectCenterY - viewportCenterY);
+}
+
+function tokenizeCommand(command: string): string[] {
+  return normalize(command)
+    .split(/[^a-z0-9_#]+/g)
+    .filter((token) => token.length >= 3);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseBoardStateContext(raw: unknown): BoardStateContext | undefined {
+  if (!isRecord(raw)) return undefined;
+
+  const context: BoardStateContext = {};
+
+  if (typeof raw.command === 'string' && raw.command.trim().length > 0) {
+    context.command = raw.command.trim();
+  }
+  if (typeof raw.type === 'string' && raw.type.trim().length > 0) {
+    context.type = raw.type.trim();
+  }
+  if (typeof raw.color === 'string' && raw.color.trim().length > 0) {
+    context.color = raw.color.trim();
+  }
+  if (typeof raw.textContains === 'string' && raw.textContains.trim().length > 0) {
+    context.textContains = raw.textContains.trim();
+  }
+  if (Array.isArray(raw.selectedObjectIds)) {
+    const selectedObjectIds = raw.selectedObjectIds
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (selectedObjectIds.length > 0) {
+      context.selectedObjectIds = selectedObjectIds;
+    }
+  }
+  if (isRecord(raw.viewport)) {
+    const x = raw.viewport.x;
+    const y = raw.viewport.y;
+    const width = raw.viewport.width;
+    const height = raw.viewport.height;
+    if (
+      typeof x === 'number'
+      && typeof y === 'number'
+      && typeof width === 'number'
+      && typeof height === 'number'
+      && width > 0
+      && height > 0
+    ) {
+      context.viewport = { x, y, width, height };
+    }
+  }
+
+  return Object.keys(context).length > 0 ? context : undefined;
+}
+
+function parseFindObjectsQuery(raw: unknown): FindObjectsQuery | undefined {
+  if (!isRecord(raw)) return undefined;
+
+  const query: FindObjectsQuery = {
+    ...(parseBoardStateContext(raw) ?? {}),
+  };
+
+  if (typeof raw.inFrameId === 'string' && raw.inFrameId.trim().length > 0) {
+    query.inFrameId = raw.inFrameId.trim();
+  }
+
+  if (typeof raw.nearX === 'number' && typeof raw.nearY === 'number') {
+    query.nearX = raw.nearX;
+    query.nearY = raw.nearY;
+  }
+
+  if (typeof raw.maxResults === 'number' && raw.maxResults > 0 && raw.maxResults <= 50) {
+    query.maxResults = raw.maxResults;
+  }
+
+  return Object.keys(query).length > 0 ? query : undefined;
+}
+
+function isInsideFrame(object: BoardObject, frame: BoardObject): boolean {
+  const frameRight = frame.x + frame.width;
+  const frameBottom = frame.y + frame.height;
+  const objectRight = object.x + object.width;
+  const objectBottom = object.y + object.height;
+
+  return (
+    object.x >= frame.x
+    && object.y >= frame.y
+    && objectRight <= frameRight
+    && objectBottom <= frameBottom
+  );
+}
+
+function distanceToPoint(object: BoardObject, x: number, y: number): number {
+  const objectCenterX = object.x + (object.width / 2);
+  const objectCenterY = object.y + (object.height / 2);
+  return Math.hypot(objectCenterX - x, objectCenterY - y);
+}
+
+function hasHardFilters(context: BoardStateContext | undefined): boolean {
+  if (!context) return false;
+  return (
+    typeof context.type === 'string'
+    || typeof context.color === 'string'
+    || typeof context.textContains === 'string'
+  );
+}
+
+function matchesHardFilters(object: BoardObject, context: BoardStateContext | undefined): boolean {
+  if (!context) return true;
+
+  if (typeof context.type === 'string' && context.type.trim().length > 0) {
+    if (toTypeToken(object.type) !== toTypeToken(context.type)) {
+      return false;
+    }
+  }
+  if (typeof context.color === 'string' && context.color.trim().length > 0) {
+    if (getObjectColor(object) !== normalize(context.color)) {
+      return false;
+    }
+  }
+  if (typeof context.textContains === 'string' && context.textContains.trim().length > 0) {
+    if (!getObjectText(object).includes(normalize(context.textContains))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function relevanceScore(
+  object: BoardObject,
+  context: BoardStateContext | undefined,
+  selectedIds: Set<string>,
+  commandTokens: string[],
+): number {
+  let score = 0;
+
+  if (selectedIds.has(object.id)) {
+    score += 2000;
+  }
+
+  if (context?.viewport) {
+    if (intersectsViewport(object, context.viewport)) {
+      score += 700;
+    } else {
+      score -= Math.min(600, distanceToViewportCenter(object, context.viewport) / 10);
+    }
+  }
+
+  if (typeof context?.type === 'string' && context.type.trim().length > 0) {
+    score += 300;
+  }
+  if (typeof context?.color === 'string' && context.color.trim().length > 0) {
+    score += 250;
+  }
+  if (typeof context?.textContains === 'string' && context.textContains.trim().length > 0) {
+    score += 250;
+  }
+
+  const objectText = getObjectText(object);
+  const objectType = toTypeToken(object.type);
+  const objectColor = getObjectColor(object);
+  for (const token of commandTokens) {
+    if (objectText.includes(token)) score += 40;
+    if (objectType.includes(token)) score += 20;
+    if (objectColor.includes(token)) score += 20;
+  }
+
+  return score;
+}
+
+function scopeBoardState(objects: BoardObject[], context: BoardStateContext | undefined): BoardObject[] {
+  const hardFiltered = objects.filter((object) => matchesHardFilters(object, context));
+  if (hardFiltered.length === 0 && hasHardFilters(context)) {
+    return [];
+  }
+
+  const candidates = hardFiltered.length > 0 ? hardFiltered : objects;
+  const selectedIds = new Set((context?.selectedObjectIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0));
+  const commandTokens = context?.command ? tokenizeCommand(context.command) : [];
+
+  const scored = candidates.map((object, index) => ({
+    object,
+    index,
+    score: relevanceScore(object, context, selectedIds, commandTokens),
+  }));
+
+  scored.sort((left, right) => {
+    if (left.score !== right.score) {
+      return right.score - left.score;
+    }
+    return left.index - right.index;
+  });
+
+  return scored.slice(0, 50).map((item) => item.object);
+}
+
+function findObjects(objects: BoardObject[], query: FindObjectsQuery): BoardObject[] {
+  const hardFiltered = objects.filter((object) => matchesHardFilters(object, query));
+  if (hardFiltered.length === 0 && hasHardFilters(query)) {
+    return [];
+  }
+
+  let candidates = hardFiltered.length > 0 ? hardFiltered : objects;
+  if (query.inFrameId) {
+    const frame = objects.find((object) => object.id === query.inFrameId && object.type === 'frame');
+    if (!frame) {
+      return [];
+    }
+    candidates = candidates.filter((object) => object.id !== frame.id && isInsideFrame(object, frame));
+  }
+
+  const selectedIds = new Set((query.selectedObjectIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0));
+  const commandTokens = query.command ? tokenizeCommand(query.command) : [];
+
+  const scored = candidates.map((object, index) => {
+    let score = relevanceScore(object, query, selectedIds, commandTokens);
+    if (typeof query.nearX === 'number' && typeof query.nearY === 'number') {
+      score += Math.max(0, 500 - (distanceToPoint(object, query.nearX, query.nearY) / 4));
+    }
+    return {
+      object,
+      score,
+      index,
+    };
+  });
+
+  scored.sort((left, right) => {
+    if (left.score !== right.score) {
+      return right.score - left.score;
+    }
+    // Stable deterministic tie-breaker.
+    const idSort = left.object.id.localeCompare(right.object.id);
+    if (idSort !== 0) return idSort;
+    return left.index - right.index;
+  });
+
+  const maxResults = query.maxResults ?? 50;
+  return scored.slice(0, maxResults).map((item) => item.object);
 }
 
 // ── Mutation handler ───────────────────────────────────────────────────────────
@@ -388,6 +712,44 @@ router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> 
 });
 
 /**
+ * POST /ai/find-objects
+ * Return deterministic object matches and IDs for precise follow-up mutations.
+ */
+router.post('/find-objects', async (req: Request, res: Response): Promise<void> => {
+  if (!verifyBridgeSecret(req, res)) return;
+
+  const { boardId } = req.body as FindObjectsRequest;
+  const query = parseFindObjectsQuery((req.body as FindObjectsRequest).query);
+  const traceId = getTraceId(req);
+
+  if (!boardId) {
+    res.status(400).json({ success: false, error: 'boardId is required' });
+    return;
+  }
+  if (!query) {
+    res.status(400).json({ success: false, error: 'query is required' });
+    return;
+  }
+
+  try {
+    const { doc } = await getOrLoadDoc(boardId);
+    const objects = doc.getMap<BoardObject>('objects');
+    const allObjects = getAllObjects(objects);
+    const matches = findObjects(allObjects, query);
+
+    res.json({
+      totalObjects: allObjects.length,
+      returnedCount: matches.length,
+      objectIds: matches.map((object) => object.id),
+      objects: matches,
+    });
+  } catch (err) {
+    console.error(`[AI Bridge] ${withTracePrefix(traceId)}Find objects error:`, err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /ai/board-state
  * Return scoped board state (max 50 objects) for a board.
  */
@@ -395,6 +757,7 @@ router.post('/board-state', async (req: Request, res: Response): Promise<void> =
   if (!verifyBridgeSecret(req, res)) return;
 
   const { boardId } = req.body as BoardStateRequest;
+  const context = parseBoardStateContext((req.body as BoardStateRequest).context);
   const traceId = getTraceId(req);
 
   if (!boardId) {
@@ -407,7 +770,7 @@ router.post('/board-state', async (req: Request, res: Response): Promise<void> =
 
     const objects = doc.getMap<BoardObject>('objects');
     const allObjects = getAllObjects(objects);
-    const scoped = allObjects.slice(0, 50);
+    const scoped = scopeBoardState(allObjects, context);
 
     res.json({
       totalObjects: allObjects.length,

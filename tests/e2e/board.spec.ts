@@ -323,4 +323,26 @@ test.describe('Board Management', () => {
     await page.getByRole('button', { name: 'Resolve' }).click();
     await expect(page.getByTestId('comment-thread-panel')).not.toBeVisible();
   });
+
+  test('keeps AI color-group move targeting scoped to matching objects', async ({ page }) => {
+    await signUpAndLandOnBoards(page, 'ai-color-targeting');
+    await createBoard(page);
+
+    const aiBar = page.getByTestId('ai-command-bar');
+    const aiInput = aiBar.getByLabel('AI board command');
+    const sendButton = aiBar.getByRole('button', { name: 'Send AI command' });
+    const aiStatus = aiBar.getByRole('status');
+
+    await aiInput.fill('Add 12 pink sticky notes');
+    await sendButton.click();
+    await expect(aiStatus).toContainText('12 objects updated', { timeout: 20000 });
+
+    await aiInput.fill('Add 12 blue sticky notes');
+    await sendButton.click();
+    await expect(aiStatus).toContainText('12 objects updated', { timeout: 20000 });
+
+    await aiInput.fill('Move all pink sticky notes to the right side');
+    await sendButton.click();
+    await expect(aiStatus).toContainText('12 objects updated', { timeout: 20000 });
+  });
 });

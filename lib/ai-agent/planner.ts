@@ -40,7 +40,20 @@ export interface KanbanVerificationSpec {
   stickyPlacements: KanbanStickyPlacement[];
 }
 
-export type PlanVerificationSpec = KanbanVerificationSpec;
+export interface ColorMovePlacement {
+  objectId: string;
+  x: number;
+  y: number;
+}
+
+export interface ColorMoveVerificationSpec {
+  type: 'color-move-group';
+  tolerancePx: number;
+  color: string;
+  placements: ColorMovePlacement[];
+}
+
+export type PlanVerificationSpec = KanbanVerificationSpec | ColorMoveVerificationSpec;
 
 export interface ComplexCommandPlan {
   requiresBoardState: boolean;
@@ -72,6 +85,7 @@ const COLOR_NAME_TO_HEX: Record<string, string> = {
   purple: '#c084fc',
   orange: '#fb923c',
   yellow: '#ffeb3b',
+  pink: '#ec4899',
 };
 
 interface BulkStickyGenerationIntent {
@@ -88,6 +102,11 @@ interface KanbanIntent {
   columnTitles: string[];
   shouldArrangeExistingStickies: boolean;
   shouldResizeStickies: boolean;
+}
+
+interface ColorMoveIntent {
+  color: string;
+  direction: 'left' | 'right';
 }
 
 const NUMBER_WORD_VALUES: Record<string, number> = {
@@ -456,6 +475,105 @@ function buildKanbanPlan(
   };
 }
 
+function normalizeColor(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function extractObjectColorHex(object: ScopedBoardState['objects'][number]): string {
+  const keys = ['color', 'fillColor', 'strokeColor'] as const;
+  for (const key of keys) {
+    const value = object.properties[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return normalizeColor(value);
+    }
+  }
+  return '';
+}
+
+function resolveColorHexFromCommand(normalizedCommand: string): string | null {
+  const hexMatch = normalizedCommand.match(/#[0-9a-f]{6}\b/i);
+  if (hexMatch?.[0]) {
+    return normalizeColor(hexMatch[0]);
+  }
+
+  for (const [name, hex] of Object.entries(COLOR_NAME_TO_HEX)) {
+    if (normalizedCommand.includes(name)) {
+      return normalizeColor(hex);
+    }
+  }
+
+  return null;
+}
+
+function parseColorMoveIntent(command: string): ColorMoveIntent | null {
+  const normalized = command.trim().toLowerCase();
+  const hasMoveVerb = /\b(move|shift|reposition)\b/.test(normalized);
+  const hasStickyTarget = /\b(sticky\s*notes?|stickies|notes?)\b/.test(normalized);
+  const hasGroupScope = /\b(all|every)\b/.test(normalized);
+  const direction = normalized.includes('right') ? 'right' : normalized.includes('left') ? 'left' : null;
+  const color = resolveColorHexFromCommand(normalized);
+
+  if (!hasMoveVerb || !hasStickyTarget || !hasGroupScope || !direction || !color) {
+    return null;
+  }
+
+  return { color, direction };
+}
+
+function buildColorMovePlan(intent: ColorMoveIntent, boardState?: ScopedBoardState): ComplexCommandPlan {
+  if (!boardState) {
+    return { requiresBoardState: true, steps: [] };
+  }
+
+  const stickyNotes = boardState.objects.filter(
+    (object) => object.type === 'sticky_note' && extractObjectColorHex(object) === normalizeColor(intent.color),
+  );
+  if (stickyNotes.length === 0) {
+    return { requiresBoardState: false, steps: [] };
+  }
+
+  const ordered = [...stickyNotes].sort((a, b) => {
+    if (a.y !== b.y) return a.y - b.y;
+    return a.x - b.x;
+  });
+  const boardMinX = Math.min(...boardState.objects.map((object) => object.x), 120);
+  const boardMaxX = Math.max(
+    ...boardState.objects.map((object) => object.x + object.width),
+    1200,
+  );
+  const targetX = intent.direction === 'right'
+    ? Math.max(1200, boardMaxX + 120)
+    : Math.min(120, boardMinX - 120);
+  const baseY = Math.min(...ordered.map((note) => note.y));
+
+  const placements: ColorMovePlacement[] = ordered.map((note, index) => {
+    const nextY = baseY + (index * (Math.max(note.height, 120) + 16));
+    return {
+      objectId: note.id,
+      x: targetX,
+      y: nextY,
+    };
+  });
+
+  return {
+    requiresBoardState: false,
+    steps: placements.map((placement) => ({
+      tool: 'moveObject',
+      args: {
+        objectId: placement.objectId,
+        x: placement.x,
+        y: placement.y,
+      },
+    })),
+    verification: {
+      type: 'color-move-group',
+      tolerancePx: 8,
+      color: intent.color,
+      placements,
+    },
+  };
+}
+
 function parseJourneyStageCount(command: string): number {
   const match = command.match(/with\s+(\d+)\s+stages?/i);
   if (!match) {
@@ -507,7 +625,7 @@ function placeTemplate(items: TemplateSeedDefinition[], state: ScopedBoardState)
 }
 
 function planNamedTemplate(
-  templateId: Extract<TemplateId, 'swot' | 'retrospective' | 'brainstorm'>,
+  templateId: Extract<TemplateId, 'swot' | 'retrospective' | 'lean_canvas'>,
   boardState?: ScopedBoardState,
 ): ComplexCommandPlan {
   if (!boardState) {
@@ -783,6 +901,57 @@ function verifyKanbanLayout(
   };
 }
 
+function verifyColorMoveGroup(
+  verification: ColorMoveVerificationSpec,
+  boardState: ScopedBoardState,
+): PlanVerificationResult {
+  const correctiveSteps: PlannedToolStep[] = [];
+  const issues: string[] = [];
+  const byId = new Map(boardState.objects.map((object) => [object.id, object]));
+  const expectedColor = normalizeColor(verification.color);
+
+  for (const placement of verification.placements) {
+    const object = byId.get(placement.objectId);
+    if (!object || object.type !== 'sticky_note') {
+      issues.push(`Missing sticky note ${placement.objectId} for color-group move`);
+      continue;
+    }
+
+    const currentColor = extractObjectColorHex(object);
+    if (currentColor !== expectedColor) {
+      issues.push(`Sticky ${object.id} color drifted to ${currentColor || 'unknown'}`);
+      correctiveSteps.push({
+        tool: 'changeColor',
+        args: {
+          objectId: object.id,
+          color: verification.color,
+        },
+      });
+    }
+
+    const shouldMove =
+      Math.abs(object.x - placement.x) > verification.tolerancePx
+      || Math.abs(object.y - placement.y) > verification.tolerancePx;
+    if (shouldMove) {
+      issues.push(`Sticky ${object.id} position mismatch (${object.x},${object.y})`);
+      correctiveSteps.push({
+        tool: 'moveObject',
+        args: {
+          objectId: object.id,
+          x: placement.x,
+          y: placement.y,
+        },
+      });
+    }
+  }
+
+  return {
+    passed: issues.length === 0,
+    correctiveSteps,
+    issues,
+  };
+}
+
 export function verifyPlanExecution(
   plan: ComplexCommandPlan,
   boardState: ScopedBoardState,
@@ -799,6 +968,10 @@ export function verifyPlanExecution(
     return verifyKanbanLayout(plan.verification, boardState);
   }
 
+  if (plan.verification.type === 'color-move-group') {
+    return verifyColorMoveGroup(plan.verification, boardState);
+  }
+
   return {
     passed: true,
     correctiveSteps: [],
@@ -811,6 +984,11 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
   const kanbanIntent = parseKanbanIntent(command);
   if (kanbanIntent) {
     return buildKanbanPlan(kanbanIntent, boardState);
+  }
+
+  const colorMoveIntent = parseColorMoveIntent(command);
+  if (colorMoveIntent) {
+    return buildColorMovePlan(colorMoveIntent, boardState);
   }
 
   const bulkLineIntent = parseBulkLineGenerationIntent(command);
@@ -844,11 +1022,13 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
   }
 
   if (
-    normalized.includes('brainstorm board')
+    normalized.includes('lean canvas')
+    || normalized.includes('lean-canvas')
+    || normalized.includes('brainstorm board')
     || normalized.includes('brainstorm template')
     || normalized.includes('create a brainstorm')
   ) {
-    return planNamedTemplate('brainstorm', boardState);
+    return planNamedTemplate('lean_canvas', boardState);
   }
 
   if (normalized.includes('grid of sticky notes') && normalized.includes('pros and cons')) {

@@ -259,4 +259,184 @@ describe('POST /api/ai/command', () => {
       expect.any(Object),
     );
   });
+
+  it('runs a follow-up completion after findObjects-only first pass', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    mockTracing
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('findObjects', { type: 'sticky_note', textContains: 'roadmap' }) as never,
+      )
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'obj-1', x: 640, y: 240 }) as never,
+      );
+
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'findObjects', args: { type: 'sticky_note', textContains: 'roadmap' }, result: 'Found 1 objects' }],
+        objectsAffected: [],
+        toolOutputs: [
+          {
+            toolCallId: 'call-1',
+            tool: 'findObjects',
+            output: {
+              totalObjects: 5,
+              returnedCount: 1,
+              objectIds: ['obj-1'],
+              objects: [{ id: 'obj-1', type: 'sticky_note' }],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'moveObject', args: { objectId: 'obj-1', x: 640, y: 240 }, result: 'Affected: obj-1' }],
+        objectsAffected: ['obj-1'],
+        toolOutputs: [{ toolCallId: 'call-1', tool: 'moveObject', output: { success: true, affectedObjectIds: ['obj-1'] } }],
+      });
+
+    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move roadmap note to the right' }));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.objectsAffected).toEqual(['obj-1']);
+    expect(mockTracing).toHaveBeenCalledTimes(2);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(mockSetTracePath).toHaveBeenCalledWith(mockTraceContext, 'llm-followup');
+  });
+
+  it('records structured accuracy telemetry in trace metadata', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    mockTracing
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('getBoardState', {}) as never,
+      )
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'obj-1', x: 480, y: 260 }) as never,
+      );
+
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 2 of 2 objects' }],
+        objectsAffected: [],
+        toolOutputs: [
+          {
+            toolCallId: 'call-1',
+            tool: 'getBoardState',
+            output: { totalObjects: 2, returnedCount: 2, objects: [{ id: 'obj-1' }, { id: 'obj-2' }] },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'moveObject', args: { objectId: 'obj-1', x: 480, y: 260 }, result: 'Affected: obj-1' }],
+        objectsAffected: ['obj-1'],
+        toolOutputs: [],
+      });
+
+    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the first object to x 480 y 260' }));
+    expect(response.status).toBe(200);
+    expect(mockFinishTrace).toHaveBeenCalledWith(
+      mockTraceContext,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          resolutionSource: 'getBoardState',
+          candidateCount: 2,
+          retryCount: 0,
+        }),
+      }),
+    );
+  });
+
+  it('enforces a read pass before mutating edit-intent commands', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    mockTracing
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'obj-1', x: 700, y: 280 }) as never,
+      )
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'obj-1', x: 700, y: 280 }) as never,
+      );
+
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: { command: 'Move the sticky note to the right' }, result: 'Returned 1 of 1 objects' }],
+        objectsAffected: [],
+        toolOutputs: [{ toolCallId: 'state-1', tool: 'getBoardState', output: { totalObjects: 1, returnedCount: 1, objects: [{ id: 'obj-1' }] } }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'moveObject', args: { objectId: 'obj-1', x: 700, y: 280 }, result: 'Affected: obj-1' }],
+        objectsAffected: ['obj-1'],
+        toolOutputs: [],
+      });
+
+    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the sticky note to the right' }));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.objectsAffected).toEqual(['obj-1']);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    const firstCallArgs = mockExecute.mock.calls[0]?.[0] ?? [];
+    expect(firstCallArgs[0]?.function?.name).toBe('getBoardState');
+  });
+
+  it('retries once with refreshed state when mutation fails with stale object id', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    mockTracing
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('getBoardState', {}) as never,
+      )
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'stale-id', x: 500, y: 300 }) as never,
+      )
+      .mockResolvedValueOnce(
+        makeOpenAIToolResponse('moveObject', { objectId: 'obj-2', x: 500, y: 300 }) as never,
+      );
+
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 1 of 1 objects' }],
+        objectsAffected: [],
+        toolOutputs: [{ toolCallId: 'state-1', tool: 'getBoardState', output: { totalObjects: 1, returnedCount: 1, objects: [{ id: 'obj-2' }] } }],
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        actions: [{ tool: 'moveObject', args: { objectId: 'stale-id', x: 500, y: 300 }, result: 'failed' }],
+        objectsAffected: [],
+        toolOutputs: [],
+        error: 'Object stale-id not found',
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 1 of 1 objects' }],
+        objectsAffected: [],
+        toolOutputs: [{ toolCallId: 'state-2', tool: 'getBoardState', output: { totalObjects: 1, returnedCount: 1, objects: [{ id: 'obj-2' }] } }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        actions: [{ tool: 'moveObject', args: { objectId: 'obj-2', x: 500, y: 300 }, result: 'Affected: obj-2' }],
+        objectsAffected: ['obj-2'],
+        toolOutputs: [{ toolCallId: 'retry-1', tool: 'moveObject', output: { success: true, affectedObjectIds: ['obj-2'] } }],
+      });
+
+    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the note to x 500 y 300' }));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.objectsAffected).toEqual(['obj-2']);
+    expect(mockExecute).toHaveBeenCalledTimes(4);
+    expect(mockTracing).toHaveBeenCalledTimes(3);
+    expect(mockRecordTraceEvent).toHaveBeenCalledWith(
+      mockTraceContext,
+      'route-stale-id-retry',
+      expect.any(Object),
+    );
+  });
 });

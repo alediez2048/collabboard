@@ -216,18 +216,7 @@ describe('AI agent requirements matrix', () => {
   });
 
   describe('Manipulation commands', () => {
-    it('uses a read-then-mutate sequence for moving all pink notes to the right side', async () => {
-      mockTracing
-        .mockResolvedValueOnce(
-          makeToolResponse([{ name: 'getBoardState', args: {} }]) as never,
-        )
-        .mockResolvedValueOnce(
-          makeToolResponse([
-            { name: 'moveObject', args: { objectId: 'pink-1', x: 1300, y: 140 } },
-            { name: 'moveObject', args: { objectId: 'pink-2', x: 1300, y: 420 } },
-          ]) as never,
-        );
-
+    it('uses deterministic planner + verification for moving all pink notes to the right side', async () => {
       mockExecute
         .mockResolvedValueOnce({
           success: true,
@@ -248,10 +237,32 @@ describe('AI agent requirements matrix', () => {
         .mockResolvedValueOnce({
           success: true,
           actions: [
-            { tool: 'moveObject', args: { objectId: 'pink-1', x: 1300, y: 140 }, result: 'Affected: pink-1' },
-            { tool: 'moveObject', args: { objectId: 'pink-2', x: 1300, y: 420 }, result: 'Affected: pink-2' },
+            { tool: 'moveObject', args: { objectId: 'pink-1', x: 1200, y: 140 }, result: 'Affected: pink-1' },
+            { tool: 'moveObject', args: { objectId: 'pink-2', x: 1200, y: 356 }, result: 'Affected: pink-2' },
           ],
           objectsAffected: ['pink-1', 'pink-2'],
+          toolOutputs: [],
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          actions: [{ tool: 'getBoardState', args: {}, result: 'Returned 3 of 3 objects' }],
+          objectsAffected: [],
+          toolOutputs: [
+            {
+              toolCallId: 'tool-verify',
+              tool: 'getBoardState',
+              output: buildStickyState([
+                { id: 'pink-1', x: 1200, y: 140, color: '#ec4899' },
+                { id: 'pink-2', x: 1200, y: 356, color: '#ec4899' },
+                { id: 'blue-1', x: 500, y: 180, color: '#60a5fa' },
+              ]),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          actions: [],
+          objectsAffected: [],
           toolOutputs: [],
         });
 
@@ -260,9 +271,10 @@ describe('AI agent requirements matrix', () => {
 
       expect(response.status).toBe(200);
       expect(body.success).toBe(true);
-      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute.mock.calls.length).toBeGreaterThanOrEqual(3);
       expect(mockExecute.mock.calls[0]?.[0]?.[0]?.function?.name).toBe('getBoardState');
       expect(mockExecute.mock.calls[1]?.[0]?.every((call: { function: { name: string } }) => call.function.name === 'moveObject')).toBe(true);
+      expect(mockTracing).not.toHaveBeenCalled();
     });
 
     it('supports resizing a frame after reading context', async () => {

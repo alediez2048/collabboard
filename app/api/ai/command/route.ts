@@ -13,7 +13,7 @@ import {
 import { planComplexCommand, verifyPlanExecution } from '@/lib/ai-agent/planner';
 import type { ToolCallInput } from '@/lib/ai-agent/executor';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import type { ScopedBoardState } from '@/lib/ai-agent/scoped-state';
+import type { BoardStateScopeContext, BoardStateViewport, ScopedBoardState } from '@/lib/ai-agent/scoped-state';
 import type { CommandTraceContext } from '@/lib/ai-agent/tracing';
 import type { ExecutionTraceEvent, ExecutionTraceOptions } from '@/lib/ai-agent/executor';
 
@@ -22,7 +22,8 @@ const SYSTEM_PROMPT = `You are an AI assistant that controls a collaborative whi
 You can ONLY manipulate the whiteboard by calling the provided tools. You must not answer general questions, write code, or do anything unrelated to board manipulation.
 
 Rules:
-- Always use getBoardState() first if the user's command references existing objects (e.g. "move the notes", "change the color").
+- Use findObjects() first for precise targeting when the user references subsets (color/text/frame/region like "pink notes", "notes in sprint frame").
+- Use getBoardState() first when you need broader board context before deciding an action.
 - Use canvas coordinates: x increases rightward, y increases downward.
 - Reasonable default positions are between 100–800 x and 100–600 y.
 - Default sticky note size: 200x200. Default shape sizes: 200x150.
@@ -32,6 +33,7 @@ Rules:
 interface AICommandRequest {
   boardId: string;
   command: string;
+  context?: BoardStateScopeContext;
 }
 
 interface AICommandResponse {
@@ -39,6 +41,134 @@ interface AICommandResponse {
   actions: Array<{ tool: string; args: Record<string, unknown>; result: string }>;
   objectsAffected: string[];
   error?: string;
+}
+
+const READ_ONLY_TOOLS = new Set(['getBoardState', 'findObjects']);
+const MUTATION_TOOLS = new Set([
+  'createStickyNote',
+  'createShape',
+  'createFrame',
+  'createConnector',
+  'moveObject',
+  'resizeObject',
+  'updateText',
+  'changeColor',
+]);
+
+function hasReadOnlyToolCall(toolCalls: ToolCallInput[]): boolean {
+  return toolCalls.some((toolCall) => READ_ONLY_TOOLS.has(toolCall.function.name));
+}
+
+function hasMutationToolCall(toolCalls: ToolCallInput[]): boolean {
+  return toolCalls.some((toolCall) => MUTATION_TOOLS.has(toolCall.function.name));
+}
+
+function isLikelyEditIntent(command: string): boolean {
+  const normalized = command.toLowerCase();
+  return /\b(move|resize|rename|recolor|change|update|align|arrange|distribute|reposition|shift)\b/.test(normalized);
+}
+
+function isRetryableObjectResolutionError(error: string | undefined): boolean {
+  if (!error) return false;
+  return /\b(not\s+found|stale|missing|does\s+not\s+exist)\b/i.test(error);
+}
+
+function getReturnedCountFromOutput(output: unknown): number | null {
+  if (!isRecord(output)) return null;
+  const returnedCount = output.returnedCount;
+  return typeof returnedCount === 'number' ? returnedCount : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toViewport(value: unknown): BoardStateViewport | undefined {
+  if (!isRecord(value)) return undefined;
+  const x = value.x;
+  const y = value.y;
+  const width = value.width;
+  const height = value.height;
+  if (
+    typeof x !== 'number'
+    || typeof y !== 'number'
+    || typeof width !== 'number'
+    || typeof height !== 'number'
+    || width <= 0
+    || height <= 0
+  ) {
+    return undefined;
+  }
+  return { x, y, width, height };
+}
+
+function sanitizeCommandContext(value: unknown): BoardStateScopeContext | undefined {
+  if (!isRecord(value)) return undefined;
+  const context: BoardStateScopeContext = {};
+
+  if (typeof value.type === 'string' && value.type.trim().length > 0) {
+    context.type = value.type.trim();
+  }
+  if (typeof value.color === 'string' && value.color.trim().length > 0) {
+    context.color = value.color.trim();
+  }
+  if (typeof value.textContains === 'string' && value.textContains.trim().length > 0) {
+    context.textContains = value.textContains.trim();
+  }
+  if (Array.isArray(value.selectedObjectIds)) {
+    const selectedObjectIds = value.selectedObjectIds
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (selectedObjectIds.length > 0) {
+      context.selectedObjectIds = selectedObjectIds;
+    }
+  }
+  const viewport = toViewport(value.viewport);
+  if (viewport) {
+    context.viewport = viewport;
+  }
+
+  return Object.keys(context).length > 0 ? context : undefined;
+}
+
+function buildBoardStateArgs(command: string, context?: BoardStateScopeContext): Record<string, unknown> {
+  return {
+    command,
+    ...(context ?? {}),
+  };
+}
+
+function mergeReadContextIntoCalls(
+  toolCalls: ToolCallInput[],
+  command: string,
+  context?: BoardStateScopeContext,
+): ToolCallInput[] {
+  return toolCalls.map((toolCall) => {
+    if (toolCall.function.name !== 'getBoardState' && toolCall.function.name !== 'findObjects') {
+      return toolCall;
+    }
+
+    let parsedArgs: Record<string, unknown> = {};
+    try {
+      parsedArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+    } catch {
+      parsedArgs = {};
+    }
+
+    const mergedArgs: Record<string, unknown> = {
+      ...buildBoardStateArgs(command, context),
+      ...parsedArgs,
+    };
+
+    return {
+      ...toolCall,
+      function: {
+        ...toolCall.function,
+        arguments: JSON.stringify(mergedArgs),
+      },
+    };
+  });
 }
 
 function toToolCallInputs(
@@ -81,6 +211,12 @@ function toPlannedToolCalls(steps: Array<{ tool: string; args: Record<string, un
  */
 export async function POST(request: NextRequest): Promise<NextResponse<AICommandResponse>> {
   let traceContext: CommandTraceContext | null = null;
+  const accuracyTelemetry = {
+    resolutionSource: 'none',
+    candidateCount: 0,
+    retryCount: 0,
+    verificationCorrections: 0,
+  };
 
   const emitTraceEvent = (event: ExecutionTraceEvent): void => {
     if (!traceContext) return;
@@ -107,6 +243,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
           statusCode: init?.status ?? 200,
           actionsCount: payload.actions.length,
           objectsAffectedCount: payload.objectsAffected.length,
+          resolutionSource: accuracyTelemetry.resolutionSource,
+          candidateCount: accuracyTelemetry.candidateCount,
+          retryCount: accuracyTelemetry.retryCount,
+          verificationCorrections: accuracyTelemetry.verificationCorrections,
         },
       });
     }
@@ -138,6 +278,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     }
 
     const { boardId, command } = body;
+    const commandContext = sanitizeCommandContext(body.context);
 
     if (!boardId || typeof boardId !== 'string' || boardId.trim().length === 0) {
       return NextResponse.json(
@@ -172,6 +313,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     // This keeps execution sequential and predictable for multi-step setup/layout requests.
     const initialPlan = planComplexCommand(trimmedCommand);
     if (initialPlan) {
+      accuracyTelemetry.resolutionSource = 'deterministic-planner';
       setCommandTraceExecutionPath(traceContext, 'deterministic-planner');
       void recordCommandTraceEvent(traceContext, 'route-decision', {
         path: 'deterministic-planner',
@@ -189,7 +331,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
             {
               id: 'planned-get-board-state',
               type: 'function',
-              function: { name: 'getBoardState', arguments: '{}' },
+              function: {
+                name: 'getBoardState',
+                arguments: JSON.stringify(buildBoardStateArgs(trimmedCommand, commandContext)),
+              },
             },
           ],
           trimmedBoardId,
@@ -208,6 +353,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
 
         plannedActions = [...boardStateRead.actions];
         plannedObjectsAffected = [...boardStateRead.objectsAffected];
+        accuracyTelemetry.candidateCount = Math.max(
+          accuracyTelemetry.candidateCount,
+          getReturnedCountFromOutput(boardStateRead.toolOutputs.at(-1)?.output) ?? 0,
+        );
 
         const latestState = boardStateRead.toolOutputs.at(-1)?.output as ScopedBoardState | undefined;
         resolvedPlan = planComplexCommand(trimmedCommand, latestState) ?? { requiresBoardState: false, steps: [] };
@@ -275,7 +424,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
             {
               id: 'planned-verification-state',
               type: 'function',
-              function: { name: 'getBoardState', arguments: '{}' },
+              function: {
+                name: 'getBoardState',
+                arguments: JSON.stringify(buildBoardStateArgs(trimmedCommand, commandContext)),
+              },
             },
           ],
           trimmedBoardId,
@@ -316,6 +468,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
                 requestedCorrections: correctiveToolCalls.length,
                 correctionSuccess: correctionExecution.success,
               });
+              accuracyTelemetry.verificationCorrections += correctiveToolCalls.length;
             }
           }
         } else {
@@ -377,91 +530,279 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       });
     }
 
-    const executionResult = await executeToolCalls(
+    const firstToolCallsWithContext = mergeReadContextIntoCalls(
       firstToolCalls,
+      trimmedCommand,
+      commandContext,
+    );
+
+    const buildForcedReadCall = (id: string): ToolCallInput => ({
+      id,
+      type: 'function',
+      function: {
+        name: 'getBoardState',
+        arguments: JSON.stringify(buildBoardStateArgs(trimmedCommand, commandContext)),
+      },
+    });
+
+    const executeStaleIdRetry = async (
+      priorActions: Array<{ tool: string; args: Record<string, unknown>; result: string }>,
+      priorObjectsAffected: string[],
+      initialError?: string,
+    ): Promise<AICommandResponse | null> => {
+      if (!isRetryableObjectResolutionError(initialError)) {
+        return null;
+      }
+
+      accuracyTelemetry.retryCount += 1;
+      accuracyTelemetry.resolutionSource = 'retry-read-pass';
+      void recordCommandTraceEvent(traceContext!, 'route-stale-id-retry', {
+        reason: initialError,
+      });
+
+      const retryStateRead = await executeToolCalls(
+        [buildForcedReadCall('retry-read-state')],
+        trimmedBoardId,
+        user.id,
+        getExecutionTraceOptions(),
+      );
+
+      if (!retryStateRead.success) {
+        return {
+          success: false,
+          actions: [...priorActions, ...retryStateRead.actions],
+          objectsAffected: [...priorObjectsAffected, ...retryStateRead.objectsAffected],
+          error: retryStateRead.error ?? initialError ?? 'Retry state read failed',
+        };
+      }
+
+      accuracyTelemetry.candidateCount = Math.max(
+        accuracyTelemetry.candidateCount,
+        getReturnedCountFromOutput(retryStateRead.toolOutputs.at(-1)?.output) ?? 0,
+      );
+
+      const retryState = retryStateRead.toolOutputs.at(-1)?.output;
+      const retryMessages: ChatCompletionMessageParam[] = [
+        ...baseMessages,
+        {
+          role: 'system',
+          content:
+            'The previous mutation failed because object IDs were stale or missing. Re-resolve targets and execute the board change using concrete IDs from this scoped state: '
+            + JSON.stringify(retryState),
+        },
+      ];
+
+      const retryCompletion = await createTracedCompletion(
+        openai,
+        {
+          model: 'gpt-4o-mini',
+          messages: retryMessages,
+          tools: AI_TOOLS,
+          tool_choice: 'auto',
+        },
+        {
+          traceName: 'ai-board-command-retry',
+          context: traceContext!,
+          metadata: { routePhase: 'stale-id-retry' },
+        },
+      );
+
+      const retryResponseMessage = retryCompletion.choices[0]?.message;
+      const retryToolCalls = toToolCallInputs(
+        (retryResponseMessage?.tool_calls as Array<{ id: string; type: string; function?: { name: string; arguments: string } }> | undefined),
+      );
+
+      if (retryToolCalls.length === 0) {
+        void recordCommandTraceEvent(traceContext!, 'route-stale-id-retry-result', {
+          success: false,
+          reason: 'no-tool-calls',
+        });
+        return {
+          success: false,
+          actions: [...priorActions, ...retryStateRead.actions],
+          objectsAffected: [...priorObjectsAffected, ...retryStateRead.objectsAffected],
+          error: initialError ?? 'Retry produced no tool calls',
+        };
+      }
+
+      const retryToolCallsWithContext = mergeReadContextIntoCalls(
+        retryToolCalls,
+        trimmedCommand,
+        commandContext,
+      );
+
+      const retryExecution = await executeToolCalls(
+        retryToolCallsWithContext,
+        trimmedBoardId,
+        user.id,
+        getExecutionTraceOptions(),
+      );
+
+      void recordCommandTraceEvent(traceContext!, 'route-stale-id-retry-result', {
+        success: retryExecution.success,
+        toolCallCount: retryToolCallsWithContext.length,
+      });
+
+      return {
+        success: retryExecution.success,
+        actions: [...priorActions, ...retryStateRead.actions, ...retryExecution.actions],
+        objectsAffected: [...priorObjectsAffected, ...retryStateRead.objectsAffected, ...retryExecution.objectsAffected],
+        ...(retryExecution.error ? { error: retryExecution.error } : {}),
+      };
+    };
+
+    const runFollowupPass = async (
+      readPassExecution: Awaited<ReturnType<typeof executeToolCalls>>,
+    ): Promise<AICommandResponse> => {
+      const latestReadOutput = readPassExecution.toolOutputs.at(-1);
+      const latestBoardState = latestReadOutput?.output;
+      if (latestReadOutput?.tool === 'getBoardState' || latestReadOutput?.tool === 'findObjects') {
+        accuracyTelemetry.resolutionSource = latestReadOutput.tool;
+      }
+      accuracyTelemetry.candidateCount = Math.max(
+        accuracyTelemetry.candidateCount,
+        getReturnedCountFromOutput(latestBoardState) ?? 0,
+      );
+      setCommandTraceExecutionPath(traceContext!, 'llm-followup');
+      void recordCommandTraceEvent(traceContext!, 'route-followup-triggered', {
+        toolOutputs: readPassExecution.toolOutputs.length,
+      });
+      const followupMessages: ChatCompletionMessageParam[] = [
+        ...baseMessages,
+        {
+          role: 'system',
+          content:
+            'You previously used read-only board tools. Now execute the requested board change by calling mutation tools with concrete object IDs from this scoped state: '
+            + JSON.stringify(latestBoardState),
+        },
+      ];
+
+      const secondCompletion = await createTracedCompletion(
+        openai,
+        {
+          model: 'gpt-4o-mini',
+          messages: followupMessages,
+          tools: AI_TOOLS,
+          tool_choice: 'auto',
+        },
+        {
+          traceName: 'ai-board-command-followup',
+          context: traceContext!,
+          metadata: { routePhase: 'followup' },
+        },
+      );
+
+      const secondResponseMessage = secondCompletion.choices[0]?.message;
+      const secondToolCalls = toToolCallInputs(
+        (secondResponseMessage?.tool_calls as Array<{ id: string; type: string; function?: { name: string; arguments: string } }> | undefined),
+      );
+
+      if (secondToolCalls.length === 0) {
+        void recordCommandTraceEvent(traceContext!, 'route-no-tool-calls', {
+          stage: 'followup-pass',
+        });
+        return {
+          success: readPassExecution.success,
+          actions: readPassExecution.actions,
+          objectsAffected: readPassExecution.objectsAffected,
+        };
+      }
+
+      const secondToolCallsWithContext = mergeReadContextIntoCalls(
+        secondToolCalls,
+        trimmedCommand,
+        commandContext,
+      );
+      const secondExecution = await executeToolCalls(
+        secondToolCallsWithContext,
+        trimmedBoardId,
+        user.id,
+        getExecutionTraceOptions(),
+      );
+
+      if (!secondExecution.success) {
+        const retryPayload = await executeStaleIdRetry(
+          [...readPassExecution.actions, ...secondExecution.actions],
+          [...readPassExecution.objectsAffected, ...secondExecution.objectsAffected],
+          secondExecution.error,
+        );
+        if (retryPayload) {
+          return retryPayload;
+        }
+      }
+
+      const combinedSuccess = readPassExecution.success && secondExecution.success;
+      return {
+        success: combinedSuccess,
+        actions: [...readPassExecution.actions, ...secondExecution.actions],
+        objectsAffected: [...readPassExecution.objectsAffected, ...secondExecution.objectsAffected],
+        ...(secondExecution.error ? { error: secondExecution.error } : {}),
+      };
+    };
+
+    const shouldForceReadBeforeMutate =
+      isLikelyEditIntent(trimmedCommand)
+      && hasMutationToolCall(firstToolCallsWithContext)
+      && !hasReadOnlyToolCall(firstToolCallsWithContext);
+
+    if (shouldForceReadBeforeMutate) {
+      accuracyTelemetry.resolutionSource = 'forced-read-pass';
+      void recordCommandTraceEvent(traceContext, 'route-read-before-mutate-enforced', {
+        firstToolNames: firstToolCallsWithContext.map((call) => call.function.name),
+      });
+      const forcedReadExecution = await executeToolCalls(
+        [buildForcedReadCall('forced-read-before-mutate')],
+        trimmedBoardId,
+        user.id,
+        getExecutionTraceOptions(),
+      );
+      if (!forcedReadExecution.success) {
+        return respond({
+          success: false,
+          actions: forcedReadExecution.actions,
+          objectsAffected: forcedReadExecution.objectsAffected,
+          ...(forcedReadExecution.error ? { error: forcedReadExecution.error } : {}),
+        });
+      }
+      return respond(await runFollowupPass(forcedReadExecution));
+    }
+
+    const executionResult = await executeToolCalls(
+      firstToolCallsWithContext,
       trimmedBoardId,
       user.id,
       getExecutionTraceOptions(),
     );
+    if (!hasReadOnlyToolCall(firstToolCallsWithContext)) {
+      accuracyTelemetry.resolutionSource = 'direct-mutation';
+    }
 
-    // If the first pass only retrieved board state, run one follow-up completion
-    // with scoped board context so the model can emit mutation tool calls.
     const hadOnlyReadStatePass =
       executionResult.success &&
       executionResult.objectsAffected.length === 0 &&
       executionResult.toolOutputs.length > 0 &&
-      executionResult.toolOutputs.every((output) => output.tool === 'getBoardState');
+      executionResult.toolOutputs.every((output) => output.tool === 'getBoardState' || output.tool === 'findObjects');
 
-    if (!hadOnlyReadStatePass) {
-      return respond({
-        success: executionResult.success,
-        actions: executionResult.actions,
-        objectsAffected: executionResult.objectsAffected,
-        ...(executionResult.error ? { error: executionResult.error } : {}),
-      });
+    if (hadOnlyReadStatePass) {
+      return respond(await runFollowupPass(executionResult));
     }
 
-    const latestBoardState = executionResult.toolOutputs.at(-1)?.output;
-    setCommandTraceExecutionPath(traceContext, 'llm-followup');
-    void recordCommandTraceEvent(traceContext, 'route-followup-triggered', {
-      toolOutputs: executionResult.toolOutputs.length,
-    });
-    const followupMessages: ChatCompletionMessageParam[] = [
-      ...baseMessages,
-      {
-        role: 'system',
-        content:
-          'You previously used getBoardState. Now execute the requested board change by calling mutation tools with concrete object IDs from this scoped state: '
-          + JSON.stringify(latestBoardState),
-      },
-    ];
-
-    const secondCompletion = await createTracedCompletion(
-      openai,
-      {
-        model: 'gpt-4o-mini',
-        messages: followupMessages,
-        tools: AI_TOOLS,
-        tool_choice: 'auto',
-      },
-      {
-        traceName: 'ai-board-command-followup',
-        context: traceContext,
-        metadata: { routePhase: 'followup' },
-      },
-    );
-
-    const secondResponseMessage = secondCompletion.choices[0]?.message;
-    const secondToolCalls = toToolCallInputs(
-      (secondResponseMessage?.tool_calls as Array<{ id: string; type: string; function?: { name: string; arguments: string } }> | undefined),
-    );
-
-    if (secondToolCalls.length === 0) {
-      void recordCommandTraceEvent(traceContext, 'route-no-tool-calls', {
-        stage: 'followup-pass',
-      });
-      return respond({
-        success: executionResult.success,
-        actions: executionResult.actions,
-        objectsAffected: executionResult.objectsAffected,
-      });
+    if (!executionResult.success) {
+      const retryPayload = await executeStaleIdRetry(
+        executionResult.actions,
+        executionResult.objectsAffected,
+        executionResult.error,
+      );
+      if (retryPayload) {
+        return respond(retryPayload);
+      }
     }
-
-    const secondExecution = await executeToolCalls(
-      secondToolCalls,
-      trimmedBoardId,
-      user.id,
-      getExecutionTraceOptions(),
-    );
-    const combinedSuccess = executionResult.success && secondExecution.success;
-    const combinedActions = [...executionResult.actions, ...secondExecution.actions];
-    const combinedObjectsAffected = [...executionResult.objectsAffected, ...secondExecution.objectsAffected];
 
     return respond({
-      success: combinedSuccess,
-      actions: combinedActions,
-      objectsAffected: combinedObjectsAffected,
-      ...(secondExecution.error ? { error: secondExecution.error } : {}),
+      success: executionResult.success,
+      actions: executionResult.actions,
+      objectsAffected: executionResult.objectsAffected,
+      ...(executionResult.error ? { error: executionResult.error } : {}),
     });
   } catch (err) {
     console.error('[AI Command] Unexpected error:', err);

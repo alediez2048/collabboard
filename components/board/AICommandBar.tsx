@@ -2,8 +2,21 @@
 
 import { useState, useRef, type KeyboardEvent, type ReactElement } from 'react';
 
+interface AICommandViewport {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface AICommandContext {
+  selectedObjectIds?: string[];
+  viewport?: AICommandViewport;
+}
+
 interface AICommandBarProps {
   boardId: string;
+  requestContext?: AICommandContext;
   onCommandMetrics?: (metrics: {
     elapsedMs: number;
     success: boolean;
@@ -42,7 +55,7 @@ function buildSuccessMessage(response: CommandResponse): string {
   return `Done — ${pluralise(count, 'object')} updated via: ${tools.join(', ')}.`;
 }
 
-export function AICommandBar({ boardId, onCommandMetrics }: AICommandBarProps): ReactElement {
+export function AICommandBar({ boardId, requestContext, onCommandMetrics }: AICommandBarProps): ReactElement {
   const [command, setCommand] = useState('');
   const [status, setStatus] = useState<CommandStatus>('idle');
   const [statusMessage, setStatusMessage] = useState('');
@@ -60,7 +73,11 @@ export function AICommandBar({ boardId, onCommandMetrics }: AICommandBarProps): 
       const res = await fetch('/api/ai/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boardId, command: trimmed }),
+        body: JSON.stringify({
+          boardId,
+          command: trimmed,
+          ...(requestContext ? { context: requestContext } : {}),
+        }),
       });
 
       const data = (await res.json()) as CommandResponse;
