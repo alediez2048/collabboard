@@ -1962,6 +1962,56 @@ Automated benchmark (`tests/unit/dense-board-benchmark.test.ts`) compares prior 
 
 ---
 
+## TICKET-18.1: Toolbar Authoring Expansion (In Progress)
+
+### 🧠 Plain-English Summary
+- **What this pass delivered:** the first major authoring expansion slice for TICKET-18.1, focused on explicit interaction modes and freehand workflows.
+- **Why it mattered:** board authoring required clearer mode intent (Select vs Hand), production-grade undo/redo access, and practical drawing/erasing tools.
+
+### 📋 Metadata
+- **Status:** In Progress (partial delivery)
+- **Updated:** Feb 21, 2026
+- **Branch:** `main`
+
+### 🎯 Scope Delivered So Far
+- ✅ Added explicit tool-mode helpers and typing in `lib/utils/board-authoring.ts`:
+  - `select` / `hand` behavior separation
+  - cursor semantics per mode
+  - undo/redo shortcut detection (`Cmd/Ctrl+Z`, `Shift+Cmd/Ctrl+Z`)
+- ✅ Added toolbar productivity controls in `components/board/Toolbar.tsx`:
+  - hand tool
+  - undo/redo buttons with disabled states
+  - pencil + eraser tools
+  - pencil controls (color + stroke width)
+- ✅ Added `Y.UndoManager` integration in `components/board/Canvas.tsx`:
+  - toolbar-triggered undo/redo
+  - keyboard-triggered undo/redo with text-input safety guards
+- ✅ Improved selection UX:
+  - select-mode marquee highlight now supports plain drag on empty canvas
+- ✅ Added freehand drawing support:
+  - new board object type: `freehand_stroke` (`lib/yjs/board-doc.ts`)
+  - new renderer: `components/board/FreehandStroke.tsx`
+  - freehand drafting/finalization utilities in `lib/utils/freehand.ts`
+- ✅ Updated eraser behavior from click-delete to scrub-delete:
+  - drag across freehand strokes to erase (hit-tested against stroke segments)
+
+### ✅ Testing & Verification
+- ✅ Added/updated unit tests:
+  - `tests/unit/board-authoring-controls.test.ts`
+  - `tests/unit/freehand.test.ts`
+- ✅ Validation runs completed:
+  - `npm run lint` (changed files) → pass
+  - `npm test -- tests/unit/board-authoring-controls.test.ts tests/unit/freehand.test.ts` → pass
+  - `npm run build` → pass
+  - `npm test` full suite → generally green; one intermittent benchmark-only failure observed once in `tests/unit/dense-board-benchmark.test.ts` and immediately passed on rerun (existing perf-benchmark flake profile)
+
+### ⏭️ Remaining for Full TICKET-18.1 Completion
+- ⏳ Rich text styling controls (font family/size/color/emphasis) and persistence model expansion
+- ⏳ Sticky-note formatting quality-of-life parity work
+- ⏳ Broader e2e coverage for text/pencil/eraser/undo-redo workflows
+
+---
+
 ## Summary After Completed Tickets
 
 ### 📊 Overall Progress

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
+import type { BoardTool } from '@/lib/utils/board-authoring';
 
 interface UIState {
-  selectedTool: 'select' | 'sticky' | 'rectangle' | 'circle' | 'line' | 'connector' | 'frame' | 'text';
+  selectedTool: BoardTool;
   zoom: number;
   pan: { x: number; y: number };
   setSelectedTool: (tool: UIState['selectedTool']) => void;

@@ -15,6 +15,7 @@ interface ConnectorProps {
   objectLookup?: ReadonlyMap<string, BoardObject>;
   points?: ConnectorLinePoints | null;
   isSelected: boolean;
+  isInteractive?: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
 }
 
@@ -55,6 +56,7 @@ export const Connector = memo(function Connector({
   objectLookup,
   points,
   isSelected,
+  isInteractive = true,
   onSelect,
 }: ConnectorProps): React.ReactElement | null {
   let resolvedPoints = points ?? null;
@@ -80,13 +82,17 @@ export const Connector = memo(function Connector({
         points={[x1, y1, x2, y2]}
         stroke="transparent"
         strokeWidth={Math.max(strokeWidth + 12, 16)}
-        listening={true}
-        onClick={(e) =>
+        listening={isInteractive}
+        onClick={(e) => {
+          if (!isInteractive) return;
           onSelect(id, {
             additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-          })
-        }
-        onTap={() => onSelect(id)}
+          });
+        }}
+        onTap={() => {
+          if (!isInteractive) return;
+          onSelect(id);
+        }}
       />
       {/* Visible arrow */}
       <Arrow

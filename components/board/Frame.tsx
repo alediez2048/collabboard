@@ -15,6 +15,7 @@ interface FrameProps {
   strokeColor: string;
   rotation?: number;
   isSelected: boolean;
+  isInteractive?: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
   onDragStart?: (id: string) => void;
   onDragMove?: (id: string, x: number, y: number) => void;
@@ -35,6 +36,7 @@ export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
     strokeColor,
     rotation,
     isSelected,
+    isInteractive = true,
     onSelect,
     onDragStart,
     onDragMove,
@@ -86,25 +88,43 @@ export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
       x={x}
       y={y}
       rotation={rotation ?? 0}
-      draggable
-      onClick={(e) =>
+      draggable={isInteractive}
+      onClick={(e) => {
+        if (!isInteractive) return;
         onSelect(id, {
           additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-        })
-      }
-      onTap={() => onSelect(id)}
-      onDblClick={() => onDoubleClick(id)}
-      onDblTap={() => onDoubleClick(id)}
-      onDragStart={() => onDragStart?.(id)}
+        });
+      }}
+      onTap={() => {
+        if (!isInteractive) return;
+        onSelect(id);
+      }}
+      onDblClick={() => {
+        if (!isInteractive) return;
+        onDoubleClick(id);
+      }}
+      onDblTap={() => {
+        if (!isInteractive) return;
+        onDoubleClick(id);
+      }}
+      onDragStart={() => {
+        if (!isInteractive) return;
+        onDragStart?.(id);
+      }}
       onDragMove={(e) => {
+        if (!isInteractive) return;
         const node = e.target;
         onDragMove?.(id, node.x(), node.y());
       }}
       onDragEnd={(e) => {
+        if (!isInteractive) return;
         const node = e.target;
         onDragEnd(id, node.x(), node.y());
       }}
-      onTransformEnd={() => onTransformEnd?.(id)}
+      onTransformEnd={() => {
+        if (!isInteractive) return;
+        onTransformEnd?.(id);
+      }}
     >
       {/* Title label above the frame */}
       <Text

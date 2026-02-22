@@ -21,6 +21,7 @@ interface ShapeProps {
   textColor?: string;
   fontSize?: number;
   isSelected: boolean;
+  isInteractive?: boolean;
   reduceEffects?: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
   onDragStart?: (id: string) => void;
@@ -48,6 +49,7 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
     textColor,
     fontSize,
     isSelected,
+    isInteractive = true,
     reduceEffects,
     onSelect,
     onDragStart,
@@ -107,25 +109,43 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         x={x}
         y={y}
         rotation={rotation ?? 0}
-        draggable
-        onClick={(e) =>
+        draggable={isInteractive}
+        onClick={(e) => {
+          if (!isInteractive) return;
           onSelect(id, {
             additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-          })
-        }
-        onTap={() => onSelect(id)}
-        onDragStart={() => onDragStart?.(id)}
+          });
+        }}
+        onTap={() => {
+          if (!isInteractive) return;
+          onSelect(id);
+        }}
+        onDragStart={() => {
+          if (!isInteractive) return;
+          onDragStart?.(id);
+        }}
         onDragMove={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragMove?.(id, node.x(), node.y());
         }}
         onDragEnd={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
-        onDblClick={() => onDoubleClick?.(id)}
-        onDblTap={() => onDoubleClick?.(id)}
-        onTransformEnd={() => onTransformEnd?.(id)}
+        onDblClick={() => {
+          if (!isInteractive) return;
+          onDoubleClick?.(id);
+        }}
+        onDblTap={() => {
+          if (!isInteractive) return;
+          onDoubleClick?.(id);
+        }}
+        onTransformEnd={() => {
+          if (!isInteractive) return;
+          onTransformEnd?.(id);
+        }}
       >
         {/* Wider transparent hit area so the line is easier to click */}
         <Line
@@ -160,25 +180,43 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         x={x}
         y={y}
         rotation={rotation ?? 0}
-        draggable
-        onClick={(e) =>
+        draggable={isInteractive}
+        onClick={(e) => {
+          if (!isInteractive) return;
           onSelect(id, {
             additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-          })
-        }
-        onTap={() => onSelect(id)}
-        onDragStart={() => onDragStart?.(id)}
+          });
+        }}
+        onTap={() => {
+          if (!isInteractive) return;
+          onSelect(id);
+        }}
+        onDragStart={() => {
+          if (!isInteractive) return;
+          onDragStart?.(id);
+        }}
         onDragMove={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragMove?.(id, node.x(), node.y());
         }}
         onDragEnd={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
-        onDblClick={() => onDoubleClick?.(id)}
-        onDblTap={() => onDoubleClick?.(id)}
-        onTransformEnd={() => onTransformEnd?.(id)}
+        onDblClick={() => {
+          if (!isInteractive) return;
+          onDoubleClick?.(id);
+        }}
+        onDblTap={() => {
+          if (!isInteractive) return;
+          onDoubleClick?.(id);
+        }}
+        onTransformEnd={() => {
+          if (!isInteractive) return;
+          onTransformEnd?.(id);
+        }}
       >
         <Circle
           x={cx}
@@ -204,25 +242,43 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         x={x}
         y={y}
         rotation={rotation ?? 0}
-        draggable
-        onClick={(e) =>
+        draggable={isInteractive}
+        onClick={(e) => {
+          if (!isInteractive) return;
           onSelect(id, {
             additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-          })
-        }
-        onTap={() => onSelect(id)}
-        onDblClick={() => onDoubleClick?.(id)}
-        onDblTap={() => onDoubleClick?.(id)}
-        onDragStart={() => onDragStart?.(id)}
+          });
+        }}
+        onTap={() => {
+          if (!isInteractive) return;
+          onSelect(id);
+        }}
+        onDblClick={() => {
+          if (!isInteractive) return;
+          onDoubleClick?.(id);
+        }}
+        onDblTap={() => {
+          if (!isInteractive) return;
+          onDoubleClick?.(id);
+        }}
+        onDragStart={() => {
+          if (!isInteractive) return;
+          onDragStart?.(id);
+        }}
         onDragMove={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragMove?.(id, node.x(), node.y());
         }}
         onDragEnd={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
-        onTransformEnd={() => onTransformEnd?.(id)}
+        onTransformEnd={() => {
+          if (!isInteractive) return;
+          onTransformEnd?.(id);
+        }}
       >
         <Rect
           width={width}
@@ -258,25 +314,43 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
       x={x}
       y={y}
       rotation={rotation ?? 0}
-      draggable
-      onClick={(e) =>
+      draggable={isInteractive}
+      onClick={(e) => {
+        if (!isInteractive) return;
         onSelect(id, {
           additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-        })
-      }
-      onTap={() => onSelect(id)}
-      onDragStart={() => onDragStart?.(id)}
+        });
+      }}
+      onTap={() => {
+        if (!isInteractive) return;
+        onSelect(id);
+      }}
+      onDragStart={() => {
+        if (!isInteractive) return;
+        onDragStart?.(id);
+      }}
       onDragMove={(e) => {
+        if (!isInteractive) return;
         const node = e.target;
         onDragMove?.(id, node.x(), node.y());
       }}
       onDragEnd={(e) => {
+        if (!isInteractive) return;
         const node = e.target;
         onDragEnd(id, node.x(), node.y());
       }}
-      onDblClick={() => onDoubleClick?.(id)}
-      onDblTap={() => onDoubleClick?.(id)}
-      onTransformEnd={() => onTransformEnd?.(id)}
+      onDblClick={() => {
+        if (!isInteractive) return;
+        onDoubleClick?.(id);
+      }}
+      onDblTap={() => {
+        if (!isInteractive) return;
+        onDoubleClick?.(id);
+      }}
+      onTransformEnd={() => {
+        if (!isInteractive) return;
+        onTransformEnd?.(id);
+      }}
     >
       <Rect
         width={width}

@@ -5,6 +5,7 @@ export type BoardObjectType =
   | 'rectangle'
   | 'circle'
   | 'line'
+  | 'freehand_stroke'
   | 'connector'
   | 'frame'
   | 'text';

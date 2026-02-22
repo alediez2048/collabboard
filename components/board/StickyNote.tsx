@@ -14,6 +14,7 @@ interface StickyNoteProps {
   color: string;
   rotation?: number;
   isSelected: boolean;
+  isInteractive?: boolean;
   reduceEffects?: boolean;
   hideText?: boolean;
   onSelect: (id: string, options?: { additive: boolean }) => void;
@@ -36,6 +37,7 @@ export const StickyNote = forwardRef<Konva.Group, StickyNoteProps>(
       color,
       rotation,
       isSelected,
+      isInteractive = true,
       reduceEffects,
       hideText,
       onSelect,
@@ -88,25 +90,43 @@ export const StickyNote = forwardRef<Konva.Group, StickyNoteProps>(
         x={x}
         y={y}
         rotation={rotation ?? 0}
-        draggable
-        onClick={(e) =>
+        draggable={isInteractive}
+        onClick={(e) => {
+          if (!isInteractive) return;
           onSelect(id, {
             additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
-          })
-        }
-        onTap={() => onSelect(id)}
-        onDblClick={() => onDoubleClick(id)}
-        onDblTap={() => onDoubleClick(id)}
-        onDragStart={() => onDragStart?.(id)}
+          });
+        }}
+        onTap={() => {
+          if (!isInteractive) return;
+          onSelect(id);
+        }}
+        onDblClick={() => {
+          if (!isInteractive) return;
+          onDoubleClick(id);
+        }}
+        onDblTap={() => {
+          if (!isInteractive) return;
+          onDoubleClick(id);
+        }}
+        onDragStart={() => {
+          if (!isInteractive) return;
+          onDragStart?.(id);
+        }}
         onDragMove={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragMove?.(id, node.x(), node.y());
         }}
         onDragEnd={(e) => {
+          if (!isInteractive) return;
           const node = e.target;
           onDragEnd(id, node.x(), node.y());
         }}
-        onTransformEnd={() => onTransformEnd?.(id)}
+        onTransformEnd={() => {
+          if (!isInteractive) return;
+          onTransformEnd?.(id);
+        }}
       >
         {/* Background rectangle */}
         <Rect

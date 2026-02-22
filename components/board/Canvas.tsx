@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Rect, Transformer } from 'react-konva';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Stage, Layer, Line, Rect, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 import * as Y from 'yjs';
@@ -12,6 +12,7 @@ import { Grid } from './Grid';
 import { BoardHeader } from './BoardHeader';
 import { Toolbar } from './Toolbar';
 import { StickyNote } from './StickyNote';
+import { FreehandStroke } from './FreehandStroke';
 import { TextEditor } from './TextEditor';
 import { ColorPicker } from './ColorPicker';
 import { RemoteCursorsLayer } from './RemoteCursorsLayer';
@@ -43,6 +44,21 @@ import {
 } from '@/lib/utils/multi-select-drag';
 import { loadViewport, saveViewport } from '@/lib/utils/viewport-storage';
 import { applyPointerAnchoredWheelZoom, normalizeWheelDelta } from '@/lib/utils/zoom-interaction';
+import {
+  appendFreehandPoint,
+  createFreehandDraft,
+  finalizeFreehandDraft,
+  isPointNearFreehandPath,
+  type FreehandDraft,
+} from '@/lib/utils/freehand';
+import {
+  canPanStage,
+  getStageCursor,
+  isRedoShortcut,
+  isUndoShortcut,
+  shouldStartMarqueeSelection,
+  shouldEnableObjectInteractions,
+} from '@/lib/utils/board-authoring';
 import {
   buildObjectLookup,
   computeCanvasViewport,
@@ -98,6 +114,22 @@ function isDeleteKeyboardEvent(event: KeyboardEvent): boolean {
   );
 }
 
+function normalizeFreehandPoints(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+
+  const points: number[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isFinite(entry)) {
+      continue;
+    }
+    points.push(entry);
+  }
+
+  if (points.length < 4) return [];
+  if (points.length % 2 === 0) return points;
+  return points.slice(0, points.length - 1);
+}
+
 function appendRollingSample(
   samples: number[],
   next: number,
@@ -125,6 +157,9 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [yjsConnected, setYjsConnected] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
+  const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   // Board objects state (derived from Yjs Y.Map)
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
@@ -150,6 +185,10 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     currentX: number;
     currentY: number;
   } | null>(null);
+  const [drawingFreehand, setDrawingFreehand] = useState<FreehandDraft | null>(null);
+  const [isEraserActive, setIsEraserActive] = useState(false);
+  const [pencilColor, setPencilColor] = useState('#1d4ed8');
+  const [pencilStrokeWidth, setPencilStrokeWidth] = useState(3);
 
   // Connector tool: ID of the first object clicked (awaiting second click)
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
@@ -255,11 +294,19 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   const isDenseBoard = boardObjects.length >= 500;
   const simplifyDenseInteractionRendering =
     isDenseBoard &&
-    (isStagePanning || isWheelZooming || isObjectDragging || isMultiDragActive);
+    (isStagePanning || isWheelZooming || isObjectDragging || isMultiDragActive || !!drawingFreehand);
+  const stagePanningEnabled = canPanStage(selectedTool);
+  const objectInteractionsEnabled = shouldEnableObjectInteractions(selectedTool);
 
   useEffect(() => {
     viewportRef.current = { zoom, pan };
   }, [zoom, pan]);
+
+  useEffect(() => {
+    if (selectedTool !== 'eraser') {
+      setIsEraserActive(false);
+    }
+  }, [selectedTool]);
 
   const viewportBounds = useMemo(
     () => computeCanvasViewport(dimensions, pan, zoom, 200),
@@ -291,6 +338,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       strokeWidth: number;
       points: ConnectorLinePoints | null;
     }> = [];
+    const freehandStrokes: BoardObject[] = [];
     const shapes: BoardObject[] = [];
     const stickyNotes: BoardObject[] = [];
 
@@ -317,6 +365,8 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         });
       } else if (object.type === 'sticky_note') {
         stickyNotes.push(object);
+      } else if (object.type === 'freehand_stroke') {
+        freehandStrokes.push(object);
       } else if (
         object.type === 'rectangle' ||
         object.type === 'circle' ||
@@ -327,7 +377,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       }
     }
 
-    return { frames, connectors, shapes, stickyNotes };
+    return { frames, connectors, freehandStrokes, shapes, stickyNotes };
   }, [visibleBoardObjects, objectLookup]);
 
   // Handle window resize
@@ -632,10 +682,22 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       });
     }
 
-    // Update marquee selection rectangle while shift-dragging on empty canvas.
+    // Update marquee selection rectangle while dragging on empty canvas.
     if (marqueeSelection) {
       setMarqueeSelection((prev) =>
         prev ? { ...prev, currentX: canvasX, currentY: canvasY } : null,
+      );
+      return;
+    }
+
+    if (selectedTool === 'eraser' && isEraserActive) {
+      eraseFreehandAtPoint(canvasX, canvasY);
+      return;
+    }
+
+    if (drawingFreehand) {
+      setDrawingFreehand((prev) =>
+        prev ? appendFreehandPoint(prev, canvasX, canvasY) : null,
       );
       return;
     }
@@ -994,17 +1056,105 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     }
   };
 
+  const syncUndoRedoAvailability = useCallback((): void => {
+    const undoManager = undoManagerRef.current;
+    if (!undoManager) {
+      setCanUndo(false);
+      setCanRedo(false);
+      return;
+    }
+
+    setCanUndo(undoManager.canUndo());
+    setCanRedo(undoManager.canRedo());
+  }, []);
+
+  const clearEditingUiState = useCallback((): void => {
+    setEditingObjectId(null);
+    setShowColorPicker(false);
+    setConnectingFrom(null);
+    applySelectionRef.current([]);
+  }, []);
+
+  const handleUndo = useCallback((): void => {
+    const undoManager = undoManagerRef.current;
+    if (!undoManager || !undoManager.canUndo()) return;
+
+    undoManager.undo();
+    clearEditingUiState();
+    syncUndoRedoAvailability();
+  }, [clearEditingUiState, syncUndoRedoAvailability]);
+
+  const handleRedo = useCallback((): void => {
+    const undoManager = undoManagerRef.current;
+    if (!undoManager || !undoManager.canRedo()) return;
+
+    undoManager.redo();
+    clearEditingUiState();
+    syncUndoRedoAvailability();
+  }, [clearEditingUiState, syncUndoRedoAvailability]);
+
+  useEffect(() => {
+    if (!yDoc) {
+      undoManagerRef.current = null;
+      setCanUndo(false);
+      setCanRedo(false);
+      return;
+    }
+
+    const objects = yDoc.getMap<BoardObject>('objects');
+    const undoManager = new Y.UndoManager(objects);
+    undoManagerRef.current = undoManager;
+
+    const handleStackChange = (): void => {
+      syncUndoRedoAvailability();
+    };
+
+    undoManager.on('stack-item-added', handleStackChange);
+    undoManager.on('stack-item-popped', handleStackChange);
+    undoManager.on('stack-item-updated', handleStackChange);
+    undoManager.on('stack-cleared', handleStackChange);
+    syncUndoRedoAvailability();
+
+    return () => {
+      undoManager.off('stack-item-added', handleStackChange);
+      undoManager.off('stack-item-popped', handleStackChange);
+      undoManager.off('stack-item-updated', handleStackChange);
+      undoManager.off('stack-cleared', handleStackChange);
+      undoManager.clear();
+      undoManagerRef.current = null;
+      setCanUndo(false);
+      setCanRedo(false);
+    };
+  }, [syncUndoRedoAvailability, yDoc]);
+
   // Handle keyboard shortcuts (delete + select all)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       const key = (e.key ?? '').toLowerCase();
       const isSelectAllShortcut =
         (e.metaKey || e.ctrlKey) && !e.altKey && (key === 'a' || e.code === 'KeyA');
+      const undoShortcut = isUndoShortcut(e);
+      const redoShortcut = isRedoShortcut(e);
       const currentEditingObjectId = editingObjectIdRef.current;
       const currentSelectedObjectIds = selectedObjectIdsRef.current;
 
       // Keep native text-selection behavior in focused text inputs.
       if (isSelectAllShortcut && isTextEditableTarget(e.target)) {
+        return;
+      }
+
+      // Keep native undo/redo behavior in focused text inputs.
+      if ((undoShortcut || redoShortcut) && isTextEditableTarget(e.target)) {
+        return;
+      }
+
+      if ((undoShortcut || redoShortcut) && !currentEditingObjectId) {
+        e.preventDefault();
+        if (undoShortcut) {
+          handleUndo();
+        } else {
+          handleRedo();
+        }
         return;
       }
 
@@ -1053,7 +1203,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     // attach their own key handlers.
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, []);
+  }, [handleRedo, handleUndo]);
 
   // Create single-click objects (sticky note / text) on empty canvas
   const handleStageClick = async (e: KonvaEventObject<MouseEvent>): Promise<void> => {
@@ -1170,6 +1320,8 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     id: string,
     options?: { additive: boolean },
   ): void => {
+    if (!objectInteractionsEnabled) return;
+
     if (selectedTool === 'connector') {
       handleConnectorObjectClick(id);
       return;
@@ -1192,6 +1344,55 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
     applySelection([id], id);
   };
+
+  const eraseFreehandAtPoint = useCallback(
+    (canvasX: number, canvasY: number): void => {
+      if (!yDoc || selectedTool !== 'eraser') return;
+
+      const objects = yDoc.getMap<BoardObject>('objects');
+      const strokeIdsToRemove: string[] = [];
+
+      objects.forEach((object, objectId) => {
+        if (object.type !== 'freehand_stroke') return;
+
+        const points = normalizeFreehandPoints(object.properties.points);
+        if (points.length < 4) return;
+
+        const rawStrokeWidth = Number(object.properties.strokeWidth ?? 3);
+        const strokeWidth = Number.isFinite(rawStrokeWidth) ? Math.max(rawStrokeWidth, 1) : 3;
+
+        if (
+          isPointNearFreehandPath(
+            canvasX,
+            canvasY,
+            object.x,
+            object.y,
+            points,
+            strokeWidth,
+          )
+        ) {
+          strokeIdsToRemove.push(objectId);
+        }
+      });
+
+      if (strokeIdsToRemove.length === 0) {
+        return;
+      }
+
+      yDoc.transact(() => {
+        for (const objectId of strokeIdsToRemove) {
+          removeObject(objects, objectId);
+        }
+      });
+
+      const removedSet = new Set(strokeIdsToRemove);
+      if (selectedObjectIdsRef.current.some((objectId) => removedSet.has(objectId))) {
+        applySelectionRef.current([]);
+      }
+      setShowColorPicker(false);
+    },
+    [selectedTool, yDoc],
+  );
 
   const handleAICommandMetrics = (metrics: {
     elapsedMs: number;
@@ -1243,6 +1444,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   };
 
   const handleObjectDragStart = (id: string): void => {
+    if (!objectInteractionsEnabled) return;
     setIsObjectDragging(true);
 
     if (selectedObjectIds.length < 2 || !selectedObjectIdSet.has(id)) {
@@ -1294,6 +1496,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   };
 
   const handleObjectDragMove = (id: string, x: number, y: number): void => {
+    if (!objectInteractionsEnabled) return;
     const session = multiDragSessionRef.current;
     if (!session || session.primaryId !== id) return;
 
@@ -1304,10 +1507,12 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
   // Handle object drag end — update position in Yjs
   const handleObjectDragEnd = (id: string, x: number, y: number): void => {
+    if (!objectInteractionsEnabled) return;
     setIsObjectDragging(false);
 
     if (!yDoc) {
       clearMultiDragSession();
+      stageRef.current?.draggable(stagePanningEnabled);
       return;
     }
     const objects = yDoc.getMap<BoardObject>('objects');
@@ -1343,10 +1548,12 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       });
 
       clearMultiDragSession();
+      stageRef.current?.draggable(stagePanningEnabled);
       return;
     }
 
     updateObject(objects, id, { x, y });
+    stageRef.current?.draggable(stagePanningEnabled);
   };
 
   // Attach/detach Transformer when the selection changes.
@@ -1355,10 +1562,14 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     const tr = transformerRef.current;
     if (!tr) return;
 
-    const isSingleSelection = selectedObjectIds.length === 1;
+    const isSingleSelection = selectedTool === 'select' && selectedObjectIds.length === 1;
     const selected = selectedObjectId ? objectLookup.get(selectedObjectId) : undefined;
     // Lines and connectors don't get resize/rotate handles
-    const excluded = !selected || selected.type === 'line' || selected.type === 'connector';
+    const excluded =
+      !selected ||
+      selected.type === 'line' ||
+      selected.type === 'connector' ||
+      selected.type === 'freehand_stroke';
     const node =
       isSingleSelection && selectedObjectId
         ? shapeRefs.current.get(selectedObjectId)
@@ -1366,7 +1577,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
     tr.nodes(node && !excluded ? [node] : []);
     tr.getLayer()?.batchDraw();
-  }, [selectedObjectId, selectedObjectIds, objectLookup]);
+  }, [selectedObjectId, selectedObjectIds, selectedTool, objectLookup]);
 
   // Called by each object after the Transformer interaction ends
   const handleTransformEnd = (id: string): void => {
@@ -1401,6 +1612,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
   // Handle double-click (enter text editing mode)
   const handleDoubleClick = (id: string): void => {
+    if (!objectInteractionsEnabled) return;
     setEditingObjectId(id);
     setShowColorPicker(false);
   };
@@ -1433,7 +1645,11 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     const object = objects.get(selectedObjectId);
     if (!object) return;
 
-    const colorKey = object.type === 'sticky_note' ? 'color' : 'fillColor';
+    const colorKey = object.type === 'sticky_note'
+      ? 'color'
+      : object.type === 'freehand_stroke'
+        ? 'strokeColor'
+        : 'fillColor';
     updateObject(objects, selectedObjectId, {
       properties: { ...object.properties, [colorKey]: color },
     });
@@ -1453,8 +1669,33 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       document.activeElement.blur();
     }
 
-    // Shift+drag on empty canvas enters marquee selection mode.
-    if (selectedTool === 'select' && isStageTarget && e.evt.shiftKey) {
+    if (selectedTool === 'pencil') {
+      const pos = stage.getPointerPosition();
+      if (!pos) return;
+      const canvasX = (pos.x - stage.x()) / stage.scaleX();
+      const canvasY = (pos.y - stage.y()) / stage.scaleY();
+
+      stage.draggable(false);
+      applySelection([]);
+      setShowColorPicker(false);
+      setDrawingFreehand(createFreehandDraft(canvasX, canvasY));
+      return;
+    }
+
+    if (selectedTool === 'eraser') {
+      const pos = stage.getPointerPosition();
+      if (!pos) return;
+      const canvasX = (pos.x - stage.x()) / stage.scaleX();
+      const canvasY = (pos.y - stage.y()) / stage.scaleY();
+
+      stage.draggable(false);
+      setIsEraserActive(true);
+      eraseFreehandAtPoint(canvasX, canvasY);
+      return;
+    }
+
+    // In select mode, dragging empty canvas enters marquee selection mode.
+    if (shouldStartMarqueeSelection(selectedTool, isStageTarget)) {
       const pos = stage.getPointerPosition();
       if (!pos) return;
       const canvasX = (pos.x - stage.x()) / stage.scaleX();
@@ -1466,14 +1707,14 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         startY: canvasY,
         currentX: canvasX,
         currentY: canvasY,
-        additive: e.evt.metaKey || e.evt.ctrlKey,
+        additive: e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey,
       });
       setShowColorPicker(false);
       return;
     }
 
-    // Deselect when clicking empty canvas
-    if (isStageTarget) {
+    // Deselect when clicking empty canvas in non-hand modes.
+    if (isStageTarget && selectedTool !== 'hand') {
       applySelection([]);
     }
 
@@ -1483,7 +1724,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
     }
 
     // Start drawing if a shape or frame tool is active and target is empty canvas
-    const shapeTool = selectedTool as string;
+    const shapeTool = selectedTool;
     if (
       (shapeTool === 'rectangle' || shapeTool === 'circle' || shapeTool === 'line' || shapeTool === 'frame') &&
       isStageTarget
@@ -1508,7 +1749,14 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
   // Commit the drawn shape to Yjs on mouse up
   const handleMouseUp = (): void => {
     const stage = stageRef.current;
-    if (stage) stage.draggable(true); // always re-enable pan
+    if (stage) {
+      stage.draggable(stagePanningEnabled);
+    }
+
+    if (selectedTool === 'eraser') {
+      setIsEraserActive(false);
+      return;
+    }
 
     if (marqueeSelection) {
       const left = Math.min(marqueeSelection.startX, marqueeSelection.currentX);
@@ -1538,6 +1786,42 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
 
       applySelection(nextIds);
       setMarqueeSelection(null);
+      return;
+    }
+
+    if (drawingFreehand) {
+      if (!yDoc) {
+        setDrawingFreehand(null);
+        return;
+      }
+
+      if (drawingFreehand.points.length < 4) {
+        setDrawingFreehand(null);
+        return;
+      }
+
+      const finalized = finalizeFreehandDraft(drawingFreehand);
+      const newStroke: BoardObject = {
+        id: crypto.randomUUID(),
+        type: 'freehand_stroke',
+        x: finalized.x,
+        y: finalized.y,
+        width: finalized.width,
+        height: finalized.height,
+        rotation: 0,
+        zIndex: boardObjects.length + 1,
+        properties: {
+          points: finalized.points,
+          strokeColor: pencilColor,
+          strokeWidth: pencilStrokeWidth,
+        },
+        createdBy: sessionUserIdRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const objects = yDoc.getMap<BoardObject>('objects');
+      addObject(objects, newStroke);
+      setDrawingFreehand(null);
       return;
     }
 
@@ -1623,7 +1907,16 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
       <BoardHeader boardName={boardName} />
 
       {/* Toolbar */}
-      <Toolbar />
+      <Toolbar
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        pencilColor={pencilColor}
+        pencilStrokeWidth={pencilStrokeWidth}
+        onPencilColorChange={setPencilColor}
+        onPencilStrokeWidthChange={setPencilStrokeWidth}
+      />
 
       {/* Share button — top right */}
       <ShareButton boardId={boardId} />
@@ -1642,6 +1935,11 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
           {connectingFrom
             ? 'Now click the destination object to complete the connector'
             : 'Click the source object to start a connector'}
+        </div>
+      )}
+      {selectedTool === 'eraser' && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-rose-50 border border-rose-200 rounded-lg px-4 py-2 text-sm text-rose-700 shadow">
+          Drag across freehand strokes to erase
         </div>
       )}
 
@@ -1696,7 +1994,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         ref={stageRef}
         width={dimensions.width}
         height={dimensions.height}
-        draggable
+        draggable={stagePanningEnabled}
         onWheel={handleWheel}
         onDragStart={handleStageDragStart}
         onDragEnd={handleDragEnd}
@@ -1709,13 +2007,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         scaleX={zoom}
         scaleY={zoom}
         style={{
-          cursor: ['rectangle', 'circle', 'line', 'frame'].includes(selectedTool)
-            ? 'crosshair'
-            : selectedTool === 'connector'
-              ? 'cell'
-              : selectedTool === 'text'
-                ? 'text'
-                : 'default',
+          cursor: getStageCursor(selectedTool, isStagePanning),
         }}
       >
         {/* Grid background */}
@@ -1748,6 +2040,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                 fillColor={String(obj.properties.fillColor ?? 'rgba(219,234,254,0.25)')}
                 strokeColor={String(obj.properties.strokeColor ?? '#3b82f6')}
                 isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                isInteractive={objectInteractionsEnabled}
                 onSelect={handleSelectObject}
                 onDragStart={handleObjectDragStart}
                 onDragMove={handleObjectDragMove}
@@ -1769,9 +2062,39 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                 points={connector.points}
                 objectLookup={objectLookup}
                 isSelected={selectedObjectIdSet.has(connector.object.id) && !editingObjectId}
+                isInteractive={objectInteractionsEnabled}
                 onSelect={handleSelectObject}
               />
             ))}
+
+          {/* 2b. Freehand strokes */}
+          {layeredVisibleObjects.freehandStrokes.map((obj) => {
+              const points = normalizeFreehandPoints(obj.properties.points);
+              if (points.length < 4) return null;
+
+              return (
+                <FreehandStroke
+                  key={obj.id}
+                  ref={(node) => {
+                    if (node) shapeRefs.current.set(obj.id, node);
+                    else shapeRefs.current.delete(obj.id);
+                  }}
+                  id={obj.id}
+                  x={obj.x}
+                  y={obj.y}
+                  rotation={obj.rotation}
+                  points={points}
+                  strokeColor={String(obj.properties.strokeColor ?? '#1d4ed8')}
+                  strokeWidth={Number(obj.properties.strokeWidth ?? 3)}
+                  isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                  isInteractive={objectInteractionsEnabled}
+                  onSelect={handleSelectObject}
+                  onDragStart={handleObjectDragStart}
+                  onDragMove={handleObjectDragMove}
+                  onDragEnd={handleObjectDragEnd}
+                />
+              );
+            })}
 
           {/* 3. Shapes */}
           {layeredVisibleObjects.shapes.map((obj) => (
@@ -1797,6 +2120,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                 textColor={obj.type === 'text' ? String(obj.properties.textColor ?? '#1f2937') : undefined}
                 fontSize={obj.type === 'text' ? Number(obj.properties.fontSize ?? 28) : undefined}
                 isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                isInteractive={objectInteractionsEnabled}
                 reduceEffects={simplifyDenseInteractionRendering}
                 onSelect={handleSelectObject}
                 onDragStart={handleObjectDragStart}
@@ -1843,8 +2167,20 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
               onDoubleClick={() => {}}
             />
           )}
+          {drawingFreehand && drawingFreehand.points.length >= 4 && (
+            <Line
+              points={drawingFreehand.points}
+              stroke={pencilColor}
+              strokeWidth={pencilStrokeWidth}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.2}
+              listening={false}
+              perfectDrawEnabled={false}
+            />
+          )}
 
-          {/* 4b. Marquee selection rectangle (Shift + drag on empty canvas) */}
+          {/* 4b. Marquee selection rectangle (select tool drag on empty canvas) */}
           {marqueeSelection && (
             <Rect
               x={Math.min(marqueeSelection.startX, marqueeSelection.currentX)}
@@ -1876,6 +2212,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
                 text={String(obj.properties.text || '')}
                 color={String(obj.properties.color || '#ffeb3b')}
                 isSelected={selectedObjectIdSet.has(obj.id) && !editingObjectId}
+                isInteractive={objectInteractionsEnabled}
                 reduceEffects={simplifyDenseInteractionRendering}
                 hideText={simplifyDenseInteractionRendering}
                 onSelect={handleSelectObject}
@@ -1928,7 +2265,7 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
         />
       )}
 
-      {/* Color Picker — for sticky notes and shapes (not lines) */}
+      {/* Color Picker — for sticky notes, filled shapes, and freehand strokes */}
       {showColorPicker && selectedObject && selectedObject.type !== 'line' && (
         <div
           style={{
@@ -1941,6 +2278,8 @@ export function Canvas({ boardId, boardName }: CanvasProps) {
             selectedColor={String(
               selectedObject.type === 'sticky_note'
                 ? (selectedObject.properties.color ?? '#ffeb3b')
+                : selectedObject.type === 'freehand_stroke'
+                  ? (selectedObject.properties.strokeColor ?? '#1d4ed8')
                 : (selectedObject.properties.fillColor ?? '#93c5fd'),
             )}
             onColorSelect={handleColorChange}
