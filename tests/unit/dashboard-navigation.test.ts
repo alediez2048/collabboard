@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDashboardHref,
   DASHBOARD_SECTIONS,
   getDashboardSectionMeta,
   parseDashboardSearchQuery,
   parseDashboardSection,
+  parseDashboardViewMode,
   type DashboardSection,
 } from '@/lib/dashboard/navigation';
 
@@ -31,6 +33,24 @@ describe('dashboard navigation helpers', () => {
     expect(parseDashboardSearchQuery('   ')).toBe('');
     expect(parseDashboardSearchQuery('  Product  ')).toBe('Product');
     expect(parseDashboardSearchQuery([' Roadmap ', 'Ignored'])).toBe('Roadmap');
+  });
+
+  it('parses dashboard view mode values with safe defaults', () => {
+    expect(parseDashboardViewMode(undefined)).toBe('grid');
+    expect(parseDashboardViewMode('')).toBe('grid');
+    expect(parseDashboardViewMode('list')).toBe('list');
+    expect(parseDashboardViewMode(['list', 'grid'])).toBe('list');
+    expect(parseDashboardViewMode('invalid')).toBe('grid');
+  });
+
+  it('builds dashboard href while preserving section/search/view state', () => {
+    expect(
+      buildDashboardHref({
+        section: 'starred',
+        searchQuery: 'Roadmap',
+        viewMode: 'list',
+      }),
+    ).toBe('/?section=starred&q=Roadmap&view=list');
   });
 
   it('exports all expected sections and metadata', () => {

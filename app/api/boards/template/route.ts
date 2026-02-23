@@ -2,7 +2,7 @@ import { executeToolCalls, type ToolCallInput } from '@/lib/ai-agent/executor';
 import { createClient } from '@/lib/supabase/server';
 import {
   getTemplateCatalogItem,
-  isTemplateId,
+  normalizeTemplateId,
   type TemplateId,
   buildTemplateSeedSteps,
 } from '@/lib/templates/template-seeds';
@@ -56,12 +56,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
-    const rawTemplate = payload.template.trim().toLowerCase();
-    if (!isTemplateId(rawTemplate)) {
+    const templateId = normalizeTemplateId(payload.template);
+    if (!templateId) {
       return NextResponse.json({ error: 'Invalid template value' }, { status: 400 });
     }
 
-    const templateMetadata = getTemplateCatalogItem(rawTemplate);
+    const templateMetadata = getTemplateCatalogItem(templateId);
     const { data: board, error: createError } = await supabase
       .from('boards')
       .insert({
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Failed to create board' }, { status: 500 });
     }
 
-    const execution = await executeToolCalls(toToolCalls(rawTemplate), board.id, user.id);
+    const execution = await executeToolCalls(toToolCalls(templateId), board.id, user.id);
     if (!execution.success) {
       const { error: rollbackError } = await supabase
         .from('boards')
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         board: board as CreatedBoard,
-        template: rawTemplate,
+        template: templateId,
       },
       { status: 201 },
     );

@@ -156,10 +156,10 @@ export function AICommandBar({ boardId, requestContext, onCommandMetrics, onAppl
       {/* Status message */}
       {statusMessage && (
         <div
-          className={`mb-2 rounded-lg px-3 py-2 text-sm text-center shadow-sm transition-all ${
+          className={`mb-2 rounded-lg border-2 border-black px-3 py-2 text-sm text-center font-bold shadow-[3px_3px_0px_#000] transition-all ${
             status === 'error'
-              ? 'bg-red-50 text-red-700 border border-red-200'
-              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              ? 'bg-[var(--nb-accent-red)] text-black'
+              : 'bg-[var(--nb-accent-green)] text-black'
           }`}
           role="status"
           aria-live="polite"
@@ -169,10 +169,10 @@ export function AICommandBar({ boardId, requestContext, onCommandMetrics, onAppl
       )}
 
       {/* Input row */}
-      <div className="flex items-center gap-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200 px-4 py-2">
+      <div className="flex items-center gap-2 rounded-lg border-[3px] border-black bg-white px-4 py-2 shadow-[6px_6px_0px_#000]">
         {/* Sparkle icon */}
         <svg
-          className={`h-4 w-4 shrink-0 ${isLoading ? 'animate-spin text-indigo-400' : 'text-indigo-500'}`}
+          className={`h-5 w-5 shrink-0 ${isLoading ? 'animate-spin text-[var(--nb-accent-purple)]' : 'text-[var(--nb-accent-purple)]'}`}
           viewBox="0 0 20 20"
           fill="currentColor"
           aria-hidden="true"
@@ -187,7 +187,7 @@ export function AICommandBar({ boardId, requestContext, onCommandMetrics, onAppl
         <input
           ref={inputRef}
           type="text"
-          className="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 outline-none"
+          className="flex-1 bg-transparent text-sm font-medium text-black placeholder-[var(--nb-text-muted)] outline-none font-[var(--font-space-mono)]"
           placeholder="Ask AI to add a note, draw a shape, move objects…"
           value={command}
           onChange={(e) => setCommand(e.target.value)}
@@ -200,10 +200,10 @@ export function AICommandBar({ boardId, requestContext, onCommandMetrics, onAppl
         <button
           onClick={() => void submitCommand()}
           disabled={isLoading || !command.trim()}
-          className="shrink-0 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="nb-btn shrink-0 px-4 py-1.5 text-xs font-bold uppercase text-black bg-[var(--nb-accent-purple)] disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Send AI command"
         >
-          {isLoading ? '…' : 'Send'}
+          {isLoading ? '…' : 'SEND'}
         </button>
       </div>
     </div>

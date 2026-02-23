@@ -62,26 +62,26 @@ export function ShareButton({ boardId, inline = false, className = '' }: ShareBu
       data-testid="share-board-button"
       onClick={handleCopy}
       title="Copy shareable link"
-      className={`flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+      className={`nb-btn flex items-center gap-2 px-3 py-2 text-sm font-bold text-black transition-all ${
         inline
-          ? 'bg-white hover:bg-gray-50'
-          : 'absolute top-4 right-4 z-10 bg-white hover:bg-gray-50'
+          ? 'bg-white'
+          : 'absolute top-4 right-4 z-10 bg-white'
       } ${className}`.trim()}
     >
       {status === 'success' ? (
         <>
           {/* Checkmark icon */}
-          <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span className="text-green-600">Link copied!</span>
+          <span className="text-black">Copied!</span>
         </>
       ) : status === 'error' ? (
         <>
-          <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" />
           </svg>
-          <span className="text-red-600">Copy failed</span>
+          <span className="text-black">Failed</span>
         </>
       ) : (
         <>

@@ -75,12 +75,14 @@ export function DashboardStarButton({
         aria-pressed={isStarred}
         aria-label={isStarred ? 'Unstar board' : 'Star board'}
         data-testid={`toggle-star-${boardId}`}
-        className="inline-flex h-8 items-center rounded-md border border-gray-200 bg-white px-2 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`nb-btn inline-flex h-8 items-center px-2 text-xs font-bold uppercase text-black disabled:cursor-not-allowed disabled:opacity-50 ${
+          isStarred ? 'bg-[var(--nb-accent-yellow)]' : 'bg-white'
+        }`}
       >
         {isStarred ? 'Starred' : 'Star'}
       </button>
       {errorMessage && (
-        <span role="alert" className="max-w-24 text-right text-[10px] text-red-600">
+        <span role="alert" className="max-w-24 text-right text-[10px] font-bold text-black">
           Failed to save
         </span>
       )}

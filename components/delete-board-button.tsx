@@ -55,7 +55,7 @@ export function DeleteBoardButton({ boardId, boardName }: DeleteBoardButtonProps
         disabled={loading}
         title="Delete board"
         data-testid={`delete-board-${boardId}`}
-        className="opacity-70 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+        className="opacity-70 group-hover:opacity-100 transition-opacity p-1.5 rounded-md border-2 border-transparent text-black hover:text-black hover:bg-[var(--nb-accent-red)] hover:border-black disabled:cursor-not-allowed disabled:opacity-30"
         aria-label="Delete board"
       >
         {loading ? (

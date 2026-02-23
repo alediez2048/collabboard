@@ -6,8 +6,8 @@ import dynamic from 'next/dynamic';
 const Canvas = dynamic(() => import('./Canvas').then((mod) => ({ default: mod.Canvas })), {
   ssr: false,
   loading: () => (
-    <div className="fixed inset-0 bg-gray-50 flex items-center justify-center">
-      <div className="text-gray-500">Loading canvas...</div>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'var(--nb-bg)' }}>
+      <div className="text-black font-bold text-lg">Loading canvas...</div>
     </div>
   ),
 });

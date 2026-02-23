@@ -142,10 +142,10 @@ export function BoardNameEditable({ boardId, initialName }: BoardNameEditablePro
         onClick={handleStartEditing}
         className="text-left w-full group"
       >
-        <span className="block text-xl font-semibold text-gray-900 mb-2 pr-8 break-words">
+        <span className="block text-xl font-bold text-black mb-2 pr-8 break-words">
           {currentName}
         </span>
-        <span className="text-xs text-gray-400 group-hover:text-gray-500 transition-colors">
+        <span className="text-xs font-medium text-[var(--nb-text-muted)] group-hover:text-black transition-colors">
           Click to rename
         </span>
       </button>
@@ -166,7 +166,7 @@ export function BoardNameEditable({ boardId, initialName }: BoardNameEditablePro
         onKeyDown={handleInputKeyDown}
         disabled={isSaving}
         maxLength={MAX_BOARD_NAME_LENGTH}
-        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+        className="nb-input w-full px-3 py-2 text-sm text-black disabled:bg-[var(--nb-bg)]"
       />
 
       <div className="flex items-center gap-2">
@@ -175,7 +175,7 @@ export function BoardNameEditable({ boardId, initialName }: BoardNameEditablePro
           aria-label="Save board name"
           onClick={handleSave}
           disabled={isSaving}
-          className="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          className="nb-btn inline-flex items-center px-3 py-1.5 text-xs font-bold uppercase text-black bg-[var(--nb-accent-green)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSaving ? 'Saving...' : 'Save'}
         </button>
@@ -183,17 +183,17 @@ export function BoardNameEditable({ boardId, initialName }: BoardNameEditablePro
           type="button"
           onClick={handleCancel}
           disabled={isSaving}
-          className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+          className="nb-btn inline-flex items-center px-3 py-1.5 text-xs font-bold uppercase text-black bg-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           Cancel
         </button>
-        <span className="ml-auto text-xs text-gray-400">
+        <span className="ml-auto text-xs font-medium text-[var(--nb-text-muted)]">
           {draftName.trim().length}/{MAX_BOARD_NAME_LENGTH}
         </span>
       </div>
 
       {errorMessage && (
-        <p role="alert" className="text-xs text-red-600">
+        <p role="alert" className="text-xs font-bold text-black">
           {errorMessage}
         </p>
       )}

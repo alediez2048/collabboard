@@ -11,6 +11,15 @@ vi.mock('@/components/create-board-button', () => ({
   ),
 }));
 
+vi.mock('@/components/dashboard/DashboardViewToggle', () => ({
+  DashboardViewToggle: () => (
+    <div data-testid="dashboard-view-controls">
+      <button type="button">Grid</button>
+      <button type="button">List</button>
+    </div>
+  ),
+}));
+
 const sectionMeta: DashboardSectionMeta = {
   title: 'Home',
   description: 'All boards you can access right now.',
@@ -19,17 +28,23 @@ const sectionMeta: DashboardSectionMeta = {
 };
 
 describe('DashboardTopStrip', () => {
-  it('shows only section context and create action without placeholder controls', () => {
-    render(<DashboardTopStrip sectionMeta={sectionMeta} userId="user-1" />);
+  it('shows section context, create action, and view-mode controls', () => {
+    render(
+      <DashboardTopStrip
+        sectionMeta={sectionMeta}
+        userId="user-1"
+        activeSection="home"
+        searchQuery=""
+        viewMode="grid"
+        hasExplicitViewModeParam={false}
+      />,
+    );
 
     expect(screen.getByText('Your Boards')).toBeInTheDocument();
     expect(screen.getByText('Home: All boards you can access right now.')).toBeInTheDocument();
     expect(screen.getByTestId('dashboard-create-board-button')).toBeInTheDocument();
-
-    expect(screen.queryByTestId('dashboard-view-controls')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('dashboard-ai-placeholder')).not.toBeInTheDocument();
-    expect(screen.queryByText('Grid')).not.toBeInTheDocument();
-    expect(screen.queryByText('List')).not.toBeInTheDocument();
-    expect(screen.queryByText('AI Assistant (Soon)')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-view-controls')).toBeInTheDocument();
+    expect(screen.getByText('Grid')).toBeInTheDocument();
+    expect(screen.getByText('List')).toBeInTheDocument();
   });
 });

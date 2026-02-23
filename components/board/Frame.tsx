@@ -132,7 +132,7 @@ export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
         x={0}
         y={-28}
         fontSize={13}
-        fill={isSelected ? '#2563eb' : '#1e40af'}
+        fill={isSelected ? '#3b82f6' : '#000000'}
         fontStyle="bold"
         listening={false}
       />
@@ -141,10 +141,9 @@ export const Frame = forwardRef<Konva.Group, FrameProps>(function Frame(
         width={width}
         height={height}
         fill={fillColor}
-        stroke={isSelected ? '#2563eb' : strokeColor}
+        stroke={isSelected ? '#3b82f6' : (strokeColor === 'transparent' ? strokeColor : '#000000')}
         strokeWidth={isSelected ? 3 : 2}
-        dash={[8, 4]}
-        cornerRadius={6}
+        cornerRadius={4}
       />
     </Group>
   );

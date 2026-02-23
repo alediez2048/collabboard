@@ -40,12 +40,12 @@ export function JoinBoardPrompt({ boardId }: JoinBoardPromptProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-10 max-w-md w-full mx-4 text-center">
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--nb-bg)' }}>
+      <div className="bg-white rounded-lg border-2 border-black shadow-[6px_6px_0px_#000] p-10 max-w-md w-full mx-4 text-center">
         {/* Icon */}
-        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+        <div className="w-16 h-16 bg-[var(--nb-accent-blue)] border-2 border-black rounded-full flex items-center justify-center mx-auto mb-6">
           <svg
-            className="w-8 h-8 text-blue-500"
+            className="w-8 h-8 text-black"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -60,16 +60,16 @@ export function JoinBoardPrompt({ boardId }: JoinBoardPromptProps) {
         </div>
 
         {/* Heading */}
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+        <h1 className="text-2xl font-black text-black mb-2">
           You&apos;ve been invited to collaborate
         </h1>
-        <p className="text-gray-500 mb-8">
+        <p className="font-medium text-[var(--nb-text-muted)] mb-8">
           Someone shared this board with you. Join to start collaborating in real time.
         </p>
 
         {/* Error message */}
         {status === 'error' && (
-          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+          <div className="mb-6 p-3 bg-[var(--nb-accent-red)] border-2 border-black rounded-lg text-sm font-bold text-black">
             {errorMsg}
           </div>
         )}
@@ -78,7 +78,7 @@ export function JoinBoardPrompt({ boardId }: JoinBoardPromptProps) {
         <button
           onClick={handleJoin}
           disabled={status === 'loading'}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold py-3 px-6 rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="nb-btn w-full bg-[var(--nb-accent-green)] text-black font-bold uppercase py-3 px-6 disabled:opacity-60"
         >
           {status === 'loading' ? (
             <span className="flex items-center justify-center gap-2">
@@ -96,7 +96,7 @@ export function JoinBoardPrompt({ boardId }: JoinBoardPromptProps) {
         {/* Back link */}
         <button
           onClick={() => router.push('/')}
-          className="mt-4 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+          className="mt-4 text-sm font-bold text-[var(--nb-text-muted)] underline underline-offset-2 hover:text-black transition-colors"
         >
           Back to my boards
         </button>

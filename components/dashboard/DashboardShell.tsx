@@ -8,7 +8,7 @@ interface DashboardShellProps {
 
 export function DashboardShell({ sidebar, topStrip, children }: DashboardShellProps): ReactElement {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ background: 'var(--nb-bg)' }}>
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
           <div>{sidebar}</div>

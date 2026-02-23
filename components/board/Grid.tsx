@@ -15,7 +15,7 @@ interface GridProps {
 export function Grid({ width, height, scale, offsetX, offsetY, isPanning = false }: GridProps) {
   const gridSpacing = 50; // Base grid spacing in pixels
   const dotSize = 2; // Dot radius in pixels
-  const dotColor = '#d1d5db'; // gray-300
+  const dotColor = '#ccc5b9';
   const safeScale = scale > 0 ? scale : 1;
   const effectiveDotSize = isPanning ? 1.6 : dotSize;
 

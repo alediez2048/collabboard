@@ -60,8 +60,8 @@ export function PresenceBar({
             key={user.userId}
             title={user.userName}
             style={{ backgroundColor: user.color }}
-            className={`w-8 h-8 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-bold cursor-default select-none${
-              user.userId === currentUserId ? ' ring-2 ring-offset-1 ring-gray-400' : ''
+            className={`w-8 h-8 rounded-full border-2 border-black flex items-center justify-center text-white text-xs font-bold cursor-default select-none${
+              user.userId === currentUserId ? ' ring-2 ring-offset-1 ring-black' : ''
             }`}
           >
             {user.userName[0]?.toUpperCase() ?? '?'}
@@ -70,14 +70,14 @@ export function PresenceBar({
 
         {/* Overflow badge */}
         {overflow > 0 && (
-          <div className="w-8 h-8 rounded-full border-2 border-white flex items-center justify-center bg-gray-400 text-white text-xs font-bold cursor-default select-none">
+          <div className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center bg-[var(--nb-text-muted)] text-white text-xs font-bold cursor-default select-none">
             +{overflow}
           </div>
         )}
       </div>
 
       {/* Count badge */}
-      <span className="text-xs text-gray-500 font-medium whitespace-nowrap">
+      <span className="text-xs text-black font-bold whitespace-nowrap">
         {onlineUsers.length} online
       </span>
     </div>

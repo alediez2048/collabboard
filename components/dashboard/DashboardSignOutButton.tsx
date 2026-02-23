@@ -36,12 +36,12 @@ export function DashboardSignOutButton(): ReactElement {
         onClick={handleSignOut}
         disabled={isLoading}
         data-testid="dashboard-sign-out"
-        className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+        className="nb-btn w-full px-3 py-2 text-left text-sm font-bold text-black bg-white disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isLoading ? 'Signing out...' : 'Sign out'}
       </button>
       {errorMessage && (
-        <p role="alert" className="text-xs text-red-600">
+        <p role="alert" className="text-xs font-bold text-black">
           {errorMessage}
         </p>
       )}

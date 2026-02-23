@@ -37,13 +37,13 @@ export function BoardHeader({
 
   return (
     <div className="absolute left-4 right-4 top-4 z-20">
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-4 py-2 shadow-sm">
+        <div className="flex items-center justify-between gap-4 rounded-lg border-2 border-black bg-white px-4 py-2 shadow-[4px_4px_0px_#000]">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             data-testid="back-to-boards-button"
             onClick={() => router.push('/')}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+            className="nb-btn inline-flex h-9 w-9 items-center justify-center bg-white text-black"
             title="Back to boards"
             aria-label="Back to boards"
           >
@@ -53,20 +53,20 @@ export function BoardHeader({
           </button>
 
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Board</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-[var(--nb-text-muted)]">Board</p>
             <h1
               data-testid="board-header-name"
-              className="truncate text-sm font-semibold text-gray-900"
+              className="truncate text-sm font-bold text-black"
               title={displayName}
             >
               {displayName}
             </h1>
           </div>
 
-          <div className="hidden items-center gap-2 rounded-md bg-gray-50 px-2 py-1 text-xs text-gray-600 sm:inline-flex">
+          <div className="hidden items-center gap-2 rounded-md border-2 border-black bg-white px-2 py-1 text-xs font-bold text-black sm:inline-flex">
             <span
-              className={`h-2 w-2 rounded-full ${
-                saveState === 'saving' ? 'bg-amber-500' : 'bg-emerald-500'
+              className={`h-2.5 w-2.5 rounded-full border-2 border-black ${
+                saveState === 'saving' ? 'bg-[var(--nb-accent-orange)]' : 'bg-[var(--nb-accent-green)]'
               }`}
             />
             <span data-testid="board-save-status">{statusLabel}</span>
@@ -77,7 +77,7 @@ export function BoardHeader({
           {provider && currentUserId ? (
             <PresenceBar provider={provider} currentUserId={currentUserId} inline />
           ) : (
-            <div className="hidden rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-500 md:block">
+            <div className="hidden rounded-md border-2 border-black bg-white px-2 py-1 text-xs font-bold text-[var(--nb-text-muted)] md:block">
               No collaborators
             </div>
           )}
@@ -88,7 +88,7 @@ export function BoardHeader({
             onClick={onClearBoard}
             disabled={!canClearBoard || isClearingBoard}
             title={clearButtonTitle}
-            className="inline-flex items-center rounded-md border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="nb-btn inline-flex items-center px-3 py-2 text-sm font-bold uppercase text-black bg-[var(--nb-accent-red)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isClearingBoard ? 'Clearing...' : 'Clear'}
           </button>

@@ -61,17 +61,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--nb-bg)' }}>
+      <div className="max-w-md w-full space-y-8 p-8 bg-white border-2 border-black rounded-lg shadow-[6px_6px_0px_#000]">
         <div>
-          <h2 className="text-center text-3xl font-bold text-gray-900">
+          <h2 className="text-center text-4xl font-black text-black">
             {isSignUp ? 'Create your account' : 'Sign in to CollabBoard'}
           </h2>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="email" className="block text-sm font-bold text-black">
                 Email address
               </label>
               <input
@@ -80,13 +80,13 @@ export default function LoginPage() {
                 type="email"
                 autoComplete="email"
                 required
-                className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-black placeholder:text-gray-500 caret-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                className="nb-input mt-1 block w-full px-3 py-2 text-black placeholder:text-[var(--nb-text-muted)] caret-black"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="password" className="block text-sm font-bold text-black">
                 Password
               </label>
               <input
@@ -95,7 +95,7 @@ export default function LoginPage() {
                 type="password"
                 autoComplete={isSignUp ? 'new-password' : 'current-password'}
                 required
-                className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-black placeholder:text-gray-500 caret-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                className="nb-input mt-1 block w-full px-3 py-2 text-black placeholder:text-[var(--nb-text-muted)] caret-black"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -103,14 +103,14 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="border-2 border-black rounded-lg bg-[var(--nb-accent-red)] p-4">
+              <p className="text-sm font-bold text-black">{error}</p>
             </div>
           )}
 
           {message && (
-            <div className="rounded-md bg-green-50 p-4">
-              <p className="text-sm text-green-800">{message}</p>
+            <div className="border-2 border-black rounded-lg bg-[var(--nb-accent-green)] p-4">
+              <p className="text-sm font-bold text-black">{message}</p>
             </div>
           )}
 
@@ -118,7 +118,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="nb-btn w-full flex justify-center py-3 px-4 text-sm font-bold uppercase text-black bg-[var(--nb-accent-blue)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Loading...' : isSignUp ? 'Sign up' : 'Sign in'}
             </button>
@@ -131,7 +131,7 @@ export default function LoginPage() {
                 setIsSignUp(!isSignUp);
                 setError(null);
               }}
-              className="text-sm text-blue-600 hover:text-blue-500"
+              className="text-sm font-bold text-black underline underline-offset-2 hover:text-[var(--nb-accent-blue)]"
             >
               {isSignUp
                 ? 'Already have an account? Sign in'

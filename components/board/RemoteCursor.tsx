@@ -58,12 +58,14 @@ export function RemoteCursor({ x, y, userName, color }: RemoteCursorProps) {
         y={labelOffsetY}
         width={labelWidth}
         height={labelHeight}
-        fill={color}
-        cornerRadius={4}
-        shadowColor="rgba(0, 0, 0, 0.2)"
-        shadowBlur={3}
-        shadowOffset={{ x: 0, y: 1 }}
-        shadowOpacity={0.5}
+        fill="#ffffff"
+        cornerRadius={2}
+        stroke="#000000"
+        strokeWidth={2}
+        shadowColor="rgba(0, 0, 0, 0.9)"
+        shadowBlur={0}
+        shadowOffset={{ x: 2, y: 2 }}
+        shadowOpacity={1}
       />
 
       {/* User name text */}
@@ -72,9 +74,9 @@ export function RemoteCursor({ x, y, userName, color }: RemoteCursorProps) {
         y={labelOffsetY + 3}
         text={userName}
         fontSize={12}
-        fontFamily="Inter, system-ui, sans-serif"
-        fill="#ffffff"
-        fontStyle="500"
+        fontFamily="system-ui, sans-serif"
+        fill="#000000"
+        fontStyle="bold"
       />
     </Group>
   );

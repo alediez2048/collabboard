@@ -1,6 +1,6 @@
-import { computeGridLayout, type LayoutRect } from '@/lib/ai-agent/layout';
+import type { LayoutRect } from '@/lib/ai-agent/layout';
 
-export type TemplateId = 'kanban' | 'swot' | 'brainstorm' | 'retrospective';
+export type TemplateId = 'kanban' | 'swot' | 'lean_canvas' | 'retrospective';
 
 export interface TemplateCatalogItem {
   id: TemplateId;
@@ -43,10 +43,10 @@ export const TEMPLATE_CATALOG: readonly TemplateCatalogItem[] = [
     boardName: 'SWOT Analysis',
   },
   {
-    id: 'brainstorm',
-    title: 'Brainstorm',
-    description: 'Start with a large idea space and ready-to-edit prompts.',
-    boardName: 'Brainstorm Session',
+    id: 'lean_canvas',
+    title: 'Lean Canvas',
+    description: 'Map your problem, solution, channels, and revenue model.',
+    boardName: 'Lean Canvas',
   },
   {
     id: 'retrospective',
@@ -57,9 +57,21 @@ export const TEMPLATE_CATALOG: readonly TemplateCatalogItem[] = [
 ] as const;
 
 const TEMPLATE_IDS = new Set<TemplateId>(TEMPLATE_CATALOG.map((template) => template.id));
+const LEGACY_TEMPLATE_ALIASES: Record<string, TemplateId> = {
+  brainstorm: 'lean_canvas',
+};
 
 export function isTemplateId(value: string): value is TemplateId {
   return TEMPLATE_IDS.has(value as TemplateId);
+}
+
+export function normalizeTemplateId(value: string): TemplateId | null {
+  const normalized = value.trim().toLowerCase();
+  if (isTemplateId(normalized)) {
+    return normalized;
+  }
+
+  return LEGACY_TEMPLATE_ALIASES[normalized] ?? null;
 }
 
 function withOrigin(definitions: TemplateSeedDefinition[], origin: Point): TemplateSeedStep[] {
@@ -228,71 +240,88 @@ function buildKanbanTemplateDefinitions(): TemplateSeedDefinition[] {
   });
 }
 
-function buildBrainstormTemplateDefinitions(): TemplateSeedDefinition[] {
-  const frameWidth = 960;
-  const frameHeight = 760;
-  const promptNotes = [
-    'Crazy idea',
-    'Small experiment',
-    'Customer pain point',
-    'Feature concept',
-    'Automation idea',
-    'Cost-saving idea',
-    'Growth idea',
-    'Support improvement',
-    'Onboarding boost',
-    'Retention lever',
-    'Quality improvement',
-    'Wild card',
-  ];
+function buildLeanCanvasTemplateDefinitions(): TemplateSeedDefinition[] {
+  const gap = 24;
+  const leftColumnWidth = 280;
+  const splitColumnWidth = 300;
+  const centerColumnWidth = 320;
+  const rightSplitColumnWidth = 300;
+  const rightColumnWidth = 280;
+  const topHalfHeight = 308;
+  const topSectionHeight = (topHalfHeight * 2) + gap;
+  const bottomSectionHeight = 240;
 
-  const gridPositions = computeGridLayout(
-    promptNotes.map((_, index) => ({
-      id: `brainstorm-note-${index + 1}`,
-      x: 0,
-      y: 0,
-      width: 200,
-      height: 200,
-    })),
-    {
-      columns: 4,
-      startX: 24,
-      startY: 72,
-      horizontalGap: 20,
-      verticalGap: 20,
-    },
-  );
+  const xProblem = 0;
+  const xSolution = xProblem + leftColumnWidth + gap;
+  const xUniqueValue = xSolution + splitColumnWidth + gap;
+  const xUnfairAdvantage = xUniqueValue + centerColumnWidth + gap;
+  const xCustomerSegments = xUnfairAdvantage + rightSplitColumnWidth + gap;
 
-  const stickyDefinitions: TemplateSeedDefinition[] = gridPositions.map((position, index) => ({
-    tool: 'createStickyNote',
-    args: {
-      text: promptNotes[index] ?? `Idea ${index + 1}`,
-      color: '#ffeb3b',
-    },
-    footprint: {
-      x: position.x,
-      y: position.y,
-      width: 200,
-      height: 200,
-    },
-  }));
+  const yTop = 0;
+  const yLowerTop = topHalfHeight + gap;
+  const yBottom = topSectionHeight + gap;
 
-  return [
+  const totalWidth = xCustomerSegments + rightColumnWidth;
+  const bottomLeftWidth = Math.floor((totalWidth - gap) / 2);
+  const bottomRightWidth = totalWidth - gap - bottomLeftWidth;
+  const xRevenueStreams = bottomLeftWidth + gap;
+
+  const section = (
+    title: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    stickyText: string,
+  ): TemplateSeedDefinition[] => [
     {
       tool: 'createFrame',
       args: {
-        title: 'Brainstorm',
-        width: frameWidth,
-        height: frameHeight,
+        title,
+        width,
+        height,
       },
       footprint: {
-        x: 0,
-        y: 0,
-        width: frameWidth,
-        height: frameHeight,
+        x,
+        y,
+        width,
+        height,
       },
     },
-    ...stickyDefinitions,
+    {
+      tool: 'createStickyNote',
+      args: {
+        text: stickyText,
+        color: '#ffeb3b',
+      },
+      footprint: {
+        x: x + 16,
+        y: y + 16,
+        width: 200,
+        height: 200,
+      },
+    },
+  ];
+
+  return [
+    ...section('Problem', xProblem, yTop, leftColumnWidth, topHalfHeight, 'Top 3 problems'),
+    ...section('Existing Alternatives', xProblem, yLowerTop, leftColumnWidth, topHalfHeight, 'Current alternatives'),
+    ...section('Solution', xSolution, yTop, splitColumnWidth, topHalfHeight, 'Proposed solution'),
+    ...section('Key Metrics', xSolution, yLowerTop, splitColumnWidth, topHalfHeight, 'Key metrics'),
+    ...section(
+      'Unique Value Proposition',
+      xUniqueValue,
+      yTop,
+      centerColumnWidth,
+      topSectionHeight,
+      'High-Level Concept',
+    ),
+    ...section('Unfair Advantage', xUnfairAdvantage, yTop, rightSplitColumnWidth, topHalfHeight, 'Unfair advantage'),
+    ...section('Channels', xUnfairAdvantage, yLowerTop, rightSplitColumnWidth, topHalfHeight, 'Primary channels'),
+    ...section('Customer Segments', xCustomerSegments, yTop, rightColumnWidth, topHalfHeight, 'Target customers'),
+    ...section('Early Adopters', xCustomerSegments, yLowerTop, rightColumnWidth, topHalfHeight, 'Early adopters'),
+    ...section('Cost Structure', xProblem, yBottom, bottomLeftWidth, bottomSectionHeight, 'Major costs'),
+    ...section('Revenue Streams', xRevenueStreams, yBottom, bottomRightWidth, bottomSectionHeight, 'Revenue sources'),
   ];
 }
 
@@ -302,8 +331,8 @@ export function buildTemplateSeedDefinitions(templateId: TemplateId): TemplateSe
       return buildKanbanTemplateDefinitions();
     case 'swot':
       return buildSwotTemplateDefinitions();
-    case 'brainstorm':
-      return buildBrainstormTemplateDefinitions();
+    case 'lean_canvas':
+      return buildLeanCanvasTemplateDefinitions();
     case 'retrospective':
       return buildRetrospectiveTemplateDefinitions();
   }

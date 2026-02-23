@@ -45,18 +45,18 @@ export function Toolbar({
     <div className="absolute left-4 top-20 z-20">
       <div
         data-testid="board-toolbar"
-        className="flex flex-col items-center gap-1 rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
+        className="flex flex-col items-center gap-1 rounded-lg border-2 border-black bg-white p-2 shadow-[4px_4px_0px_#000]"
       >
         {tools.map((tool) => (
           <button
             key={tool.id}
             onClick={() => setSelectedTool(tool.id)}
             className={`
-              inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium transition-colors
+              inline-flex h-10 w-10 items-center justify-center rounded-md border-2 text-sm font-bold transition-colors
               ${
                 selectedTool === tool.id
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  ? 'bg-[var(--nb-accent-blue)] text-black border-black'
+                  : 'bg-white text-black border-transparent hover:border-black hover:bg-[var(--nb-bg)]'
               }
             `}
             title={tool.label}
@@ -66,16 +66,16 @@ export function Toolbar({
           </button>
         ))}
 
-        <div className="my-1 h-px w-full bg-gray-200" />
+        <div className="my-1 h-0.5 w-full bg-black" />
 
         <button
           onClick={onUndo}
           className={`
-            inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium transition-colors
+            inline-flex h-10 w-10 items-center justify-center rounded-md border-2 text-sm font-bold transition-colors
             ${
               canUndo
-                ? 'bg-gray-50 text-gray-700 hover:bg-gray-100'
-                : 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                ? 'bg-white text-black border-transparent hover:border-black hover:bg-[var(--nb-bg)]'
+                : 'bg-white text-[var(--nb-text-muted)] border-transparent cursor-not-allowed'
             }
           `}
           title="Undo"
@@ -88,11 +88,11 @@ export function Toolbar({
         <button
           onClick={onRedo}
           className={`
-            inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium transition-colors
+            inline-flex h-10 w-10 items-center justify-center rounded-md border-2 text-sm font-bold transition-colors
             ${
               canRedo
-                ? 'bg-gray-50 text-gray-700 hover:bg-gray-100'
-                : 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                ? 'bg-white text-black border-transparent hover:border-black hover:bg-[var(--nb-bg)]'
+                : 'bg-white text-[var(--nb-text-muted)] border-transparent cursor-not-allowed'
             }
           `}
           title="Redo"
@@ -104,7 +104,7 @@ export function Toolbar({
       </div>
 
       {selectedTool === 'pencil' && onPencilColorChange && onPencilStrokeWidthChange && (
-        <div className="absolute left-full top-0 ml-2 rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+        <div className="absolute left-full top-0 ml-2 rounded-lg border-2 border-black bg-white p-3 shadow-[4px_4px_0px_#000]">
           <div className="flex items-center gap-3">
             <label className="flex items-center" title="Pencil color">
               <span className="sr-only">Pencil color</span>
@@ -116,7 +116,7 @@ export function Toolbar({
                 aria-label="Pencil color"
               />
             </label>
-            <label className="flex items-center gap-2 text-xs text-gray-600" title="Pencil width">
+            <label className="flex items-center gap-2 text-xs font-bold text-black" title="Pencil width">
               <span>Width</span>
               <input
                 type="range"

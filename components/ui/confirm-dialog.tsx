@@ -63,27 +63,27 @@ export function ConfirmDialog({
         }
       }}
     >
-      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0" style={{ background: 'rgba(245, 240, 232, 0.8)' }} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         data-testid="confirm-dialog"
-        className="relative w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
+        className="relative w-full max-w-md rounded-lg border-2 border-black bg-white p-6 shadow-[6px_6px_0px_#000]"
         onClick={(event) => {
           event.stopPropagation();
         }}
       >
-        <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+        <h2 id={titleId} className="text-lg font-bold text-black">
           {title}
         </h2>
-        <p id={descriptionId} className="mt-2 text-sm text-gray-600">
+        <p id={descriptionId} className="mt-2 text-sm font-medium text-[var(--nb-text-muted)]">
           {description}
         </p>
 
         {errorMessage && (
-          <p role="alert" className="mt-3 text-sm text-red-600">
+          <p role="alert" className="mt-3 text-sm font-bold text-black">
             {errorMessage}
           </p>
         )}
@@ -95,7 +95,7 @@ export function ConfirmDialog({
             data-testid={cancelButtonTestId}
             onClick={onCancel}
             disabled={isLoading}
-            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="nb-btn inline-flex items-center px-3 py-2 text-sm font-bold text-black bg-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             {cancelLabel}
           </button>
@@ -104,7 +104,7 @@ export function ConfirmDialog({
             data-testid={confirmButtonTestId}
             onClick={onConfirm}
             disabled={isLoading}
-            className="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+            className="nb-btn inline-flex items-center px-3 py-2 text-sm font-bold text-black bg-[var(--nb-accent-red)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {confirmLabel}
           </button>

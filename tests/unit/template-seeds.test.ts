@@ -15,7 +15,7 @@ function countTools(templateId: TemplateId): Record<string, number> {
 describe('template seed builders', () => {
   it('exports exactly the four quick-start templates for dashboard creation', () => {
     const ids = TEMPLATE_CATALOG.map((template) => template.id);
-    expect(ids).toEqual(['kanban', 'swot', 'brainstorm', 'retrospective']);
+    expect(ids).toEqual(['kanban', 'swot', 'lean_canvas', 'retrospective']);
   });
 
   it('builds deterministic output for every template id', () => {
@@ -46,12 +46,42 @@ describe('template seed builders', () => {
     expect(retrospectiveCounts.createStickyNote).toBe(3);
   });
 
-  it('includes starter sticky notes in Kanban and Brainstorm templates', () => {
+  it('includes starter sticky notes in Kanban template and seeded sections in Lean Canvas', () => {
     const kanbanCounts = countTools('kanban');
-    const brainstormCounts = countTools('brainstorm');
+    const leanCanvasCounts = countTools('lean_canvas');
+    const leanCanvasSteps = buildTemplateSeedSteps('lean_canvas');
+    const leanCanvasFrames = leanCanvasSteps.filter((step) => step.tool === 'createFrame');
+    const leanCanvasStickies = leanCanvasSteps.filter((step) => step.tool === 'createStickyNote');
+    const leanCanvasFrameTitles = leanCanvasFrames.map((step) => String(step.args.title ?? ''));
 
     expect(kanbanCounts.createFrame).toBe(3);
     expect(kanbanCounts.createStickyNote).toBeGreaterThanOrEqual(3);
-    expect(brainstormCounts.createStickyNote).toBeGreaterThanOrEqual(8);
+    expect(leanCanvasCounts.createFrame).toBe(11);
+    expect(leanCanvasCounts.createStickyNote).toBe(11);
+    expect(leanCanvasFrameTitles).toEqual(
+      expect.arrayContaining([
+        'Problem',
+        'Existing Alternatives',
+        'Solution',
+        'Key Metrics',
+        'Unique Value Proposition',
+        'Unfair Advantage',
+        'Channels',
+        'Customer Segments',
+        'Early Adopters',
+        'Cost Structure',
+        'Revenue Streams',
+      ]),
+    );
+    expect(
+      leanCanvasFrames.every((frame) =>
+        leanCanvasStickies.some((sticky) =>
+          Number(sticky.args.x) >= Number(frame.args.x)
+          && Number(sticky.args.x) < Number(frame.args.x) + Number(frame.args.width)
+          && Number(sticky.args.y) >= Number(frame.args.y)
+          && Number(sticky.args.y) < Number(frame.args.y) + Number(frame.args.height),
+        ),
+      ),
+    ).toBe(true);
   });
 });

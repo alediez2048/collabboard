@@ -45,18 +45,18 @@ export function CommentThreadPanel({
   return (
     <div
       data-testid="comment-thread-panel"
-      className="absolute z-30 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
+      className="absolute z-30 w-[min(22rem,calc(100vw-2rem))] rounded-lg border-2 border-black bg-white p-3 shadow-[6px_6px_0px_#000]"
       style={{
         left: position.left,
         top: position.top,
       }}
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900">Comment thread</h2>
+        <h2 className="text-sm font-bold text-black">Comment thread</h2>
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border-2 border-transparent text-black hover:border-black hover:bg-[var(--nb-bg)]"
           aria-label="Close comment thread"
           title="Close"
         >
@@ -66,17 +66,17 @@ export function CommentThreadPanel({
 
       <div className="mt-3 max-h-60 space-y-3 overflow-y-auto pr-1">
         {messages.length === 0 ? (
-          <p className="rounded-md bg-blue-50 px-2 py-2 text-xs text-blue-700">
+          <p className="rounded-md border-2 border-black bg-[var(--nb-accent-blue)] px-2 py-2 text-xs font-bold text-black">
             Add the first message to start this thread.
           </p>
         ) : (
           messages.map((message) => (
-            <article key={message.id} className="rounded-md border border-gray-200 bg-gray-50 p-2">
+            <article key={message.id} className="rounded-md border-2 border-black p-2" style={{ background: 'var(--nb-bg)' }}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-gray-800">{message.authorName}</span>
-                <span className="text-[11px] text-gray-500">{formatMessageTimestamp(message.createdAt)}</span>
+                <span className="text-xs font-bold text-black">{message.authorName}</span>
+                <span className="text-[11px] font-medium text-[var(--nb-text-muted)]">{formatMessageTimestamp(message.createdAt)}</span>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{message.text}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-black">{message.text}</p>
             </article>
           ))
         )}
@@ -95,7 +95,7 @@ export function CommentThreadPanel({
           placeholder={isResolved ? 'Thread is resolved' : 'Write a reply...'}
           disabled={isResolved}
           rows={3}
-          className="w-full resize-none rounded-md border border-gray-300 px-2 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
+          className="nb-input w-full resize-none px-2 py-2 text-sm text-black disabled:cursor-not-allowed disabled:bg-[var(--nb-bg)] disabled:text-[var(--nb-text-muted)]"
         />
       </div>
 
@@ -103,7 +103,7 @@ export function CommentThreadPanel({
         <button
           type="button"
           onClick={onToggleResolved}
-          className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          className="nb-btn inline-flex items-center px-3 py-1.5 text-xs font-bold uppercase text-black bg-white"
         >
           {isResolved ? 'Reopen' : 'Resolve'}
         </button>
@@ -112,7 +112,7 @@ export function CommentThreadPanel({
           data-testid="comment-submit-button"
           onClick={onSubmit}
           disabled={isResolved || draftText.trim().length === 0}
-          className="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          className="nb-btn inline-flex items-center px-3 py-1.5 text-xs font-bold uppercase text-black bg-[var(--nb-accent-blue)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           Send
         </button>

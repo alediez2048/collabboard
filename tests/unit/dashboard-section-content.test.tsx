@@ -58,11 +58,17 @@ function makeBoard(
 }
 
 describe('DashboardSectionContent', () => {
-  it('renders home empty state when there are no boards', () => {
+  it('renders home empty state and template gallery when there are no boards', () => {
     render(
-      <DashboardSectionContent boards={[]} userId="owner-1" activeSection="home" searchQuery="" />,
+      <DashboardSectionContent
+        boards={[]}
+        userId="owner-1"
+        activeSection="home"
+        searchQuery=""
+        viewMode="grid"
+      />,
     );
-    expect(screen.queryByTestId('dashboard-template-gallery')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-template-gallery')).toBeInTheDocument();
     expect(screen.getByText('No boards yet')).toBeInTheDocument();
     expect(screen.getByText('Create your first board to start collaborating.')).toBeInTheDocument();
   });
@@ -79,11 +85,29 @@ describe('DashboardSectionContent', () => {
         userId="owner-1"
         activeSection="home"
         searchQuery=""
+        viewMode="grid"
       />,
     );
     expect(screen.getByTestId('board-card-owned-1')).toBeInTheDocument();
     expect(screen.getByTestId('board-card-shared-1')).toBeInTheDocument();
     expect(screen.getByText('Shared with me')).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-template-gallery')).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-board-layout-grid')).toBeInTheDocument();
+  });
+
+  it('renders board list layout when list view mode is active', () => {
+    render(
+      <DashboardSectionContent
+        boards={[makeBoard({ id: 'owned-1', name: 'Owned Board', created_by: 'owner-1' })]}
+        userId="owner-1"
+        activeSection="home"
+        searchQuery=""
+        viewMode="list"
+      />,
+    );
+
+    expect(screen.getByTestId('dashboard-board-layout-list')).toBeInTheDocument();
+    expect(screen.getByTestId('board-card-owned-1')).toBeInTheDocument();
   });
 
   it('renders search-specific empty state when no boards match', () => {
@@ -93,6 +117,7 @@ describe('DashboardSectionContent', () => {
         userId="owner-1"
         activeSection="starred"
         searchQuery="roadmap"
+        viewMode="grid"
       />,
     );
 
@@ -115,6 +140,7 @@ describe('DashboardSectionContent', () => {
         userId="owner-1"
         activeSection="recent"
         searchQuery=""
+        viewMode="grid"
       />,
     );
 
@@ -129,6 +155,7 @@ describe('DashboardSectionContent', () => {
         userId="owner-1"
         activeSection="starred"
         searchQuery=""
+        viewMode="grid"
       />,
     );
 

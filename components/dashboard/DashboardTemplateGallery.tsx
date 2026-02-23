@@ -56,10 +56,10 @@ export function DashboardTemplateGallery(): ReactElement {
   return (
     <section
       data-testid="dashboard-template-gallery"
-      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+      className="rounded-lg border-2 border-black bg-white p-4 shadow-[4px_4px_0px_#000]"
     >
-      <h2 className="text-lg font-semibold text-gray-900">Start from Template</h2>
-      <p className="mt-1 text-sm text-gray-600">
+      <h2 className="text-lg font-bold text-black">Start from Template</h2>
+      <p className="mt-1 text-sm font-medium text-[var(--nb-text-muted)]">
         Launch a board with a prebuilt structure, then customize it with your team.
       </p>
 
@@ -70,10 +70,10 @@ export function DashboardTemplateGallery(): ReactElement {
             <article
               key={template.id}
               data-testid={`template-card-${template.id}`}
-              className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+              className="rounded-lg border-2 border-black bg-white p-3 shadow-[3px_3px_0px_#000]"
             >
-              <h3 className="text-sm font-semibold text-gray-900">{template.title}</h3>
-              <p className="mt-1 text-xs text-gray-600">{template.description}</p>
+              <h3 className="text-sm font-bold text-black">{template.title}</h3>
+              <p className="mt-1 text-xs font-medium text-[var(--nb-text-muted)]">{template.description}</p>
               <button
                 type="button"
                 data-testid={`template-create-${template.id}`}
@@ -81,7 +81,7 @@ export function DashboardTemplateGallery(): ReactElement {
                   void handleCreateTemplate(template.id);
                 }}
                 disabled={loadingTemplate !== null}
-                className="mt-3 inline-flex items-center rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="nb-btn mt-3 inline-flex items-center px-2.5 py-1.5 text-xs font-bold uppercase text-black bg-[var(--nb-accent-lime)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLoading ? 'Creating...' : 'Use template'}
               </button>
@@ -91,7 +91,7 @@ export function DashboardTemplateGallery(): ReactElement {
       </div>
 
       {errorMessage && (
-        <p role="alert" className="mt-3 text-xs text-red-600">
+        <p role="alert" className="mt-3 text-xs font-bold text-black bg-[var(--nb-accent-red)] border-2 border-black rounded-md px-2 py-1 inline-block">
           {errorMessage}
         </p>
       )}

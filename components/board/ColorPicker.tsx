@@ -16,14 +16,14 @@ interface ColorPickerProps {
 
 export function ColorPicker({ selectedColor, onColorSelect }: ColorPickerProps) {
   return (
-    <div className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 p-2 flex gap-1.5 z-50">
+    <div className="absolute bottom-full left-0 mb-2 bg-white rounded-lg border-2 border-black p-2 flex gap-1.5 z-50 shadow-[4px_4px_0px_#000]">
       {STICKY_COLORS.map((color) => (
         <button
           key={color.value}
           onClick={() => onColorSelect(color.value)}
           className={`
-            w-8 h-8 rounded-md transition-all hover:scale-110
-            ${selectedColor === color.value ? 'ring-2 ring-blue-500 ring-offset-2' : ''}
+            w-8 h-8 rounded-md border-2 border-black transition-all hover:scale-110
+            ${selectedColor === color.value ? 'ring-2 ring-black ring-offset-2 scale-110' : ''}
           `}
           style={{ backgroundColor: color.value }}
           title={color.name}

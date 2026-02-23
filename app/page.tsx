@@ -3,10 +3,12 @@ import { DashboardShell } from '@/components/dashboard/DashboardShell';
 import { DashboardSidebar } from '@/components/dashboard/DashboardSidebar';
 import { DashboardTopStrip } from '@/components/dashboard/DashboardTopStrip';
 import { buildDashboardBoardList } from '@/lib/dashboard/discovery';
+import { buildDashboardThumbnailMap, type BoardSnapshotRow } from '@/lib/dashboard/thumbnail';
 import {
   getDashboardSectionMeta,
   parseDashboardSearchQuery,
   parseDashboardSection,
+  parseDashboardViewMode,
 } from '@/lib/dashboard/navigation';
 import { createClient } from '@/lib/supabase/server';
 import type { Board, BoardUserState } from '@/types/board';
@@ -15,11 +17,14 @@ import { redirect } from 'next/navigation';
 interface HomePageSearchParams {
   section?: string | string[];
   q?: string | string[];
+  view?: string | string[];
 }
 
 interface HomePageProps {
   searchParams?: Promise<HomePageSearchParams> | HomePageSearchParams;
 }
+
+const DASHBOARD_THUMBNAIL_FETCH_LIMIT = 24;
 
 function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
   if (typeof value !== 'object' || value === null) {
@@ -61,6 +66,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearchParams = await resolveSearchParams(searchParams);
   const activeSection = parseDashboardSection(resolvedSearchParams.section);
   const searchQuery = parseDashboardSearchQuery(resolvedSearchParams.q);
+  const viewMode = parseDashboardViewMode(resolvedSearchParams.view);
+  const hasExplicitViewModeParam = resolvedSearchParams.view !== undefined;
   const sectionMeta = getDashboardSectionMeta(activeSection);
 
   let boards: Board[] = [];
@@ -124,12 +131,29 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     }
   }
 
-  const boardList = buildDashboardBoardList({
+  const baseBoardList = buildDashboardBoardList({
     boards,
     states: boardStates,
     section: activeSection,
     searchQuery,
   });
+  const allVisibleBoardIds = baseBoardList.map((board) => board.id);
+  const snapshotFetchBoardIds = allVisibleBoardIds.slice(0, DASHBOARD_THUMBNAIL_FETCH_LIMIT);
+
+  let snapshotRows: BoardSnapshotRow[] = [];
+  if (snapshotFetchBoardIds.length > 0) {
+    const { data: snapshotData } = await supabase
+      .from('board_snapshots')
+      .select('board_id, yjs_state, snapshot_at')
+      .in('board_id', snapshotFetchBoardIds);
+    snapshotRows = (snapshotData ?? []) as BoardSnapshotRow[];
+  }
+
+  const thumbnailsByBoardId = buildDashboardThumbnailMap(allVisibleBoardIds, snapshotRows);
+  const boardList = baseBoardList.map((board) => ({
+    ...board,
+    thumbnail: thumbnailsByBoardId.get(board.id),
+  }));
 
   return (
     <DashboardShell
@@ -138,18 +162,28 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           activeSection={activeSection}
           userEmail={user.email ?? null}
           searchQuery={searchQuery}
+          viewMode={viewMode}
         />
       }
-      topStrip={<DashboardTopStrip sectionMeta={sectionMeta} userId={user.id} />}
+      topStrip={(
+        <DashboardTopStrip
+          sectionMeta={sectionMeta}
+          userId={user.id}
+          activeSection={activeSection}
+          searchQuery={searchQuery}
+          viewMode={viewMode}
+          hasExplicitViewModeParam={hasExplicitViewModeParam}
+        />
+      )}
     >
       {loadErrorMessage && (
         <div
           role="alert"
           data-testid="dashboard-load-error"
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800"
+          className="rounded-lg border-2 border-black bg-[var(--nb-accent-red)] p-4 text-black shadow-[4px_4px_0px_#000]"
         >
-          <h2 className="font-semibold">Unable to load boards</h2>
-          <p className="mt-1 text-sm">
+          <h2 className="font-bold">Unable to load boards</h2>
+          <p className="mt-1 text-sm font-medium">
             {loadErrorMessage || 'Please refresh the page and try again.'}
           </p>
         </div>
@@ -160,6 +194,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         userId={user.id}
         activeSection={activeSection}
         searchQuery={searchQuery}
+        viewMode={viewMode}
       />
     </DashboardShell>
   );

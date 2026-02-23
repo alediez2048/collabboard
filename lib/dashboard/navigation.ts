@@ -1,6 +1,14 @@
 export const DASHBOARD_SECTIONS = ['home', 'recent', 'starred'] as const;
+export const DASHBOARD_VIEW_MODES = ['grid', 'list'] as const;
 
 export type DashboardSection = (typeof DASHBOARD_SECTIONS)[number];
+export type DashboardViewMode = (typeof DASHBOARD_VIEW_MODES)[number];
+
+interface DashboardHrefParams {
+  section: DashboardSection;
+  searchQuery: string;
+  viewMode: DashboardViewMode;
+}
 
 export interface DashboardSectionMeta {
   title: string;
@@ -10,6 +18,7 @@ export interface DashboardSectionMeta {
 }
 
 const DASHBOARD_SECTION_SET = new Set<DashboardSection>(DASHBOARD_SECTIONS);
+const DASHBOARD_VIEW_MODE_SET = new Set<DashboardViewMode>(DASHBOARD_VIEW_MODES);
 
 const DASHBOARD_SECTION_META: Record<DashboardSection, DashboardSectionMeta> = {
   home: {
@@ -52,8 +61,20 @@ function normalizeSearchValue(value: string | string[] | undefined): string {
   return value.trim();
 }
 
+function normalizeViewModeValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+}
+
 export function isDashboardSection(value: string): value is DashboardSection {
   return DASHBOARD_SECTION_SET.has(value as DashboardSection);
+}
+
+export function isDashboardViewMode(value: string): value is DashboardViewMode {
+  return DASHBOARD_VIEW_MODE_SET.has(value as DashboardViewMode);
 }
 
 export function parseDashboardSection(value: string | string[] | undefined): DashboardSection {
@@ -67,6 +88,26 @@ export function parseDashboardSection(value: string | string[] | undefined): Das
 
 export function parseDashboardSearchQuery(value: string | string[] | undefined): string {
   return normalizeSearchValue(value);
+}
+
+export function parseDashboardViewMode(value: string | string[] | undefined): DashboardViewMode {
+  const normalized = normalizeViewModeValue(value);
+  if (!normalized) {
+    return 'grid';
+  }
+
+  return isDashboardViewMode(normalized) ? normalized : 'grid';
+}
+
+export function buildDashboardHref({ section, searchQuery, viewMode }: DashboardHrefParams): string {
+  const query = new URLSearchParams({ section });
+
+  if (searchQuery) {
+    query.set('q', searchQuery);
+  }
+  query.set('view', viewMode);
+
+  return `/?${query.toString()}`;
 }
 
 export function getDashboardSectionMeta(section: DashboardSection): DashboardSectionMeta {

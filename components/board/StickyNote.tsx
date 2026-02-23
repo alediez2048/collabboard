@@ -133,14 +133,14 @@ export const StickyNote = forwardRef<Konva.Group, StickyNoteProps>(
           width={width}
           height={height}
           fill={color}
-          cornerRadius={8}
-          shadowColor={reduceEffects ? 'transparent' : 'rgba(0, 0, 0, 0.2)'}
-          shadowBlur={reduceEffects ? 0 : 10}
-          shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 0, y: 4 }}
-          shadowOpacity={reduceEffects ? 0 : 0.3}
+          cornerRadius={6}
+          shadowColor={reduceEffects ? 'transparent' : 'rgba(0, 0, 0, 0.9)'}
+          shadowBlur={0}
+          shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 3, y: 3 }}
+          shadowOpacity={reduceEffects ? 0 : 1}
           perfectDrawEnabled={false}
-          stroke={isSelected ? '#2563eb' : undefined}
-          strokeWidth={isSelected ? 3 : 0}
+          stroke={isSelected ? '#3b82f6' : '#000000'}
+          strokeWidth={isSelected ? 3 : 2}
         />
 
         {/* Text is the most expensive sticky-note node; hide it during dense interactions */}

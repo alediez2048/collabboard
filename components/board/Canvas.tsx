@@ -2170,7 +2170,7 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
     : null;
 
   return (
-    <div className="fixed inset-0 bg-gray-50">
+    <div className="fixed inset-0" style={{ background: 'var(--nb-bg)' }}>
       <BoardHeader
         boardName={boardName}
         boardId={boardId}
@@ -2209,10 +2209,10 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
             type="button"
             data-testid={`comment-pin-${thread.id}`}
             onClick={() => handleOpenCommentThread(thread.id)}
-            className={`absolute z-20 inline-flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-xs shadow transition-colors ${
+            className={`absolute z-20 inline-flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-black text-xs font-bold transition-colors ${
               isActive
-                ? 'border-blue-500 bg-blue-600 text-white'
-                : 'border-blue-200 bg-white text-blue-700 hover:bg-blue-50'
+                ? 'bg-[var(--nb-accent-purple)] text-white'
+                : 'bg-white text-black hover:bg-[var(--nb-accent-purple)] hover:text-white'
             }`}
             style={{
               left,
@@ -2240,20 +2240,20 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
 
       {/* Connector / tool hints */}
       {selectedTool === 'comment' && (
-        <div className="absolute left-1/2 top-20 z-10 -translate-x-1/2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 shadow">
+        <div className="absolute left-1/2 top-20 z-10 -translate-x-1/2 rounded-lg border-2 border-black bg-[var(--nb-accent-blue)] px-4 py-2 text-sm font-bold text-black shadow-[3px_3px_0px_#000]">
           Click on the canvas to drop a comment pin
         </div>
       )}
 
       {selectedTool === 'connector' && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700 shadow">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-[var(--nb-accent-blue)] border-2 border-black rounded-lg px-4 py-2 text-sm font-bold text-black shadow-[3px_3px_0px_#000]">
           {connectingFrom
             ? 'Now click the destination object to complete the connector'
             : 'Click the source object to start a connector'}
         </div>
       )}
       {selectedTool === 'eraser' && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-rose-50 border border-rose-200 rounded-lg px-4 py-2 text-sm text-rose-700 shadow">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-[var(--nb-accent-red)] border-2 border-black rounded-lg px-4 py-2 text-sm font-bold text-black shadow-[3px_3px_0px_#000]">
           Drag across freehand strokes to erase
         </div>
       )}
@@ -2275,30 +2275,30 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
       {/* Connection Status & Zoom indicator */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
         {/* Connection status */}
-        <div className="bg-white rounded-lg shadow-lg border border-gray-200 px-3 py-2">
-          <div className="flex items-center gap-2 text-xs">
+        <div className="bg-white rounded-lg border-2 border-black px-3 py-2 shadow-[3px_3px_0px_#000]">
+          <div className="flex items-center gap-2 text-xs font-bold">
             <div className="flex items-center gap-1">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  yjsConnected ? 'bg-green-500' : 'bg-gray-300'
+                className={`w-2.5 h-2.5 rounded-full border-2 border-black ${
+                  yjsConnected ? 'bg-[var(--nb-accent-green)]' : 'bg-white'
                 }`}
               />
-              <span className="text-gray-600">Yjs</span>
+              <span className="text-black">Yjs</span>
             </div>
             <div className="flex items-center gap-1">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  socketConnected ? 'bg-green-500' : 'bg-gray-300'
+                className={`w-2.5 h-2.5 rounded-full border-2 border-black ${
+                  socketConnected ? 'bg-[var(--nb-accent-green)]' : 'bg-white'
                 }`}
               />
-              <span className="text-gray-600">Socket</span>
+              <span className="text-black">Socket</span>
             </div>
           </div>
         </div>
 
         {/* Zoom indicator */}
-        <div className="bg-white rounded-lg shadow-lg border border-gray-200 px-3 py-2">
-          <span className="text-sm font-medium text-gray-700">
+        <div className="bg-white rounded-lg border-2 border-black px-3 py-2 shadow-[3px_3px_0px_#000]">
+          <span className="text-sm font-bold text-black">
             {Math.round(zoom * 100)}%
           </span>
         </div>

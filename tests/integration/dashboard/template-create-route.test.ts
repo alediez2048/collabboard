@@ -186,4 +186,45 @@ describe('POST /api/boards/template', () => {
     expect(mockExecuteToolCalls.mock.calls[0]?.[1]).toBe('board-1');
     expect(mockExecuteToolCalls.mock.calls[0]?.[2]).toBe('user-123');
   });
+
+  it('accepts lean_canvas template id for board creation', async () => {
+    const supabase = makeSupabaseMock({ userId: 'user-123' });
+    mockCreateClient.mockResolvedValue(supabase.client as never);
+    mockExecuteToolCalls.mockResolvedValue({
+      success: true,
+      actions: [{ tool: 'createFrame', args: {}, result: 'Affected: object-1' }],
+      objectsAffected: ['object-1'],
+      toolOutputs: [],
+    });
+
+    const response = await POST(makeRequest({ template: 'lean_canvas' }));
+    const body = (await response.json()) as {
+      board?: { id: string; name: string };
+      template?: string;
+    };
+
+    expect(response.status).toBe(201);
+    expect(body.template).toBe('lean_canvas');
+    expect(mockExecuteToolCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes legacy brainstorm template id to lean_canvas', async () => {
+    const supabase = makeSupabaseMock({ userId: 'user-123' });
+    mockCreateClient.mockResolvedValue(supabase.client as never);
+    mockExecuteToolCalls.mockResolvedValue({
+      success: true,
+      actions: [{ tool: 'createFrame', args: {}, result: 'Affected: object-1' }],
+      objectsAffected: ['object-1'],
+      toolOutputs: [],
+    });
+
+    const response = await POST(makeRequest({ template: 'brainstorm' }));
+    const body = (await response.json()) as {
+      template?: string;
+    };
+
+    expect(response.status).toBe(201);
+    expect(body.template).toBe('lean_canvas');
+    expect(mockExecuteToolCalls).toHaveBeenCalledTimes(1);
+  });
 });

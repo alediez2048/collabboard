@@ -223,12 +223,12 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
           y={cy}
           radius={radius}
           fill={fillColor}
-          stroke={selectionStroke ?? strokeColor}
-          strokeWidth={selectionStrokeWidth ?? strokeWidth}
-          shadowColor={reduceEffects ? 'transparent' : 'rgba(0,0,0,0.15)'}
-          shadowBlur={reduceEffects ? 0 : 6}
-          shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 0, y: 3 }}
-          shadowOpacity={reduceEffects ? 0 : 0.3}
+          stroke={selectionStroke ?? '#000000'}
+          strokeWidth={selectionStrokeWidth ?? 2}
+          shadowColor={reduceEffects ? 'transparent' : 'rgba(0,0,0,0.9)'}
+          shadowBlur={0}
+          shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 3, y: 3 }}
+          shadowOpacity={reduceEffects ? 0 : 1}
           perfectDrawEnabled={false}
         />
       </Group>
@@ -356,13 +356,13 @@ export const Shape = forwardRef<Konva.Group, ShapeProps>(function Shape(
         width={width}
         height={height}
         fill={fillColor}
-        stroke={selectionStroke ?? strokeColor}
-        strokeWidth={selectionStrokeWidth ?? strokeWidth}
+        stroke={selectionStroke ?? '#000000'}
+        strokeWidth={selectionStrokeWidth ?? 2}
         cornerRadius={4}
-        shadowColor={reduceEffects ? 'transparent' : 'rgba(0,0,0,0.15)'}
-        shadowBlur={reduceEffects ? 0 : 6}
-        shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 0, y: 3 }}
-        shadowOpacity={reduceEffects ? 0 : 0.3}
+        shadowColor={reduceEffects ? 'transparent' : 'rgba(0,0,0,0.9)'}
+        shadowBlur={0}
+        shadowOffset={reduceEffects ? { x: 0, y: 0 } : { x: 3, y: 3 }}
+        shadowOpacity={reduceEffects ? 0 : 1}
         perfectDrawEnabled={false}
       />
     </Group>
