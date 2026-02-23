@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface DeleteBoardButtonProps {
@@ -15,7 +15,7 @@ export function DeleteBoardButton({ boardId, boardName }: DeleteBoardButtonProps
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleDelete = async (): Promise<void> => {
+  const handleDelete = useCallback(async (): Promise<void> => {
     setLoading(true);
     setErrorMessage(null);
     try {
@@ -33,20 +33,22 @@ export function DeleteBoardButton({ boardId, boardName }: DeleteBoardButtonProps
     } finally {
       setLoading(false);
     }
-  };
+  }, [boardId, router]);
 
-  const openConfirmDialog = (event: React.MouseEvent<HTMLButtonElement>): void => {
+  const openConfirmDialog = useCallback((event: React.MouseEvent<HTMLButtonElement>): void => {
     event.preventDefault();
     event.stopPropagation();
     setErrorMessage(null);
     setIsConfirmOpen(true);
-  };
+  }, []);
 
-  const closeConfirmDialog = (): void => {
-    if (loading) return;
-    setIsConfirmOpen(false);
+  const closeConfirmDialog = useCallback((): void => {
+    setIsConfirmOpen((prev) => {
+      if (loading) return prev;
+      return false;
+    });
     setErrorMessage(null);
-  };
+  }, [loading]);
 
   return (
     <>

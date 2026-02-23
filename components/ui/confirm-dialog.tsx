@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef } from 'react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -32,6 +32,14 @@ export function ConfirmDialog({
   const titleId = useId();
   const descriptionId = useId();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const onCancelRef = useRef(onCancel);
+  const isLoadingRef = useRef(isLoading);
+  onCancelRef.current = onCancel;
+  isLoadingRef.current = isLoading;
+
+  const stableOnCancel = useCallback(() => {
+    onCancelRef.current();
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -39,8 +47,8 @@ export function ConfirmDialog({
     cancelButtonRef.current?.focus();
 
     const handleEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !isLoading) {
-        onCancel();
+      if (event.key === 'Escape' && !isLoadingRef.current) {
+        onCancelRef.current();
       }
     };
 
@@ -48,7 +56,7 @@ export function ConfirmDialog({
     return () => {
       window.removeEventListener('keydown', handleEscape);
     };
-  }, [isOpen, isLoading, onCancel]);
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;
@@ -58,8 +66,8 @@ export function ConfirmDialog({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
       onClick={() => {
-        if (!isLoading) {
-          onCancel();
+        if (!isLoadingRef.current) {
+          stableOnCancel();
         }
       }}
     >
@@ -93,7 +101,7 @@ export function ConfirmDialog({
             ref={cancelButtonRef}
             type="button"
             data-testid={cancelButtonTestId}
-            onClick={onCancel}
+            onClick={stableOnCancel}
             disabled={isLoading}
             className="nb-btn inline-flex items-center px-3 py-2 text-sm font-bold text-black bg-white disabled:cursor-not-allowed disabled:opacity-60"
           >

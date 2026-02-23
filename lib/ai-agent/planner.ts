@@ -339,11 +339,13 @@ function planBulkLineGeneration(intent: BulkLineGenerationIntent): ComplexComman
 
 function parseKanbanIntent(command: string): KanbanIntent | null {
   const normalized = command.trim().toLowerCase();
-  const hasSetupVerb = /\b(create|build|set\s*up|setup|make)\b/.test(normalized);
+  const hasSetupVerb = /\b(create|build|set\s*up|setup|make|add|generate|draw)\b/.test(normalized);
   const referencesKanban =
     normalized.includes('kanban')
     || /\bsprint\s+board\b/.test(normalized)
-    || /\bspringboards?\b/.test(normalized);
+    || /\bspringboards?\b/.test(normalized)
+    || /\btask\s+board\b/.test(normalized)
+    || /\bproject\s+board\b/.test(normalized);
 
   if (!referencesKanban || !hasSetupVerb) {
     return null;
@@ -411,16 +413,7 @@ function buildKanbanPlan(
   }));
 
   if (!shouldArrange) {
-    return {
-      requiresBoardState: false,
-      steps: frameSteps,
-      verification: {
-        type: 'kanban-layout',
-        tolerancePx: 8,
-        columns,
-        stickyPlacements: [],
-      },
-    };
+    return planNamedTemplate('kanban', boardState);
   }
 
   const orderedStickies = [...stickyNotes].sort((a, b) => {
@@ -1002,7 +995,10 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
     return planBulkStickyGeneration(bulkStickyIntent);
   }
 
-  if (normalized.includes('create a swot analysis')) {
+  if (
+    /\bswot\b/.test(normalized)
+    && /\b(create|build|set\s*up|setup|make|add|generate|draw)\b/.test(normalized)
+  ) {
     return planNamedTemplate('swot', boardState);
   }
 
@@ -1017,7 +1013,10 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
     };
   }
 
-  if (normalized.includes('retrospective board')) {
+  if (
+    /\bretro(spective)?\b/.test(normalized)
+    && (/\b(create|build|set\s*up|setup|make|add|generate|draw|board|template)\b/.test(normalized))
+  ) {
     return planNamedTemplate('retrospective', boardState);
   }
 
@@ -1026,7 +1025,8 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
     || normalized.includes('lean-canvas')
     || normalized.includes('brainstorm board')
     || normalized.includes('brainstorm template')
-    || normalized.includes('create a brainstorm')
+    || /\b(create|build|add|make|generate)\b.*\bbrainstorm\b/.test(normalized)
+    || /\bbusiness\s*model\s*canvas\b/.test(normalized)
   ) {
     return planNamedTemplate('lean_canvas', boardState);
   }

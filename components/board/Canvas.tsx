@@ -818,6 +818,21 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
     let cleanupProvider: WebsocketProvider | null = null;
     let cleanupSocket: Socket | null = null;
     let cancelled = false;
+    let snapshotAbort: AbortController | null = null;
+
+    const applySnapshotToDoc = (
+      doc: Y.Doc,
+      objects: BoardObject[],
+    ): void => {
+      doc.transact(() => {
+        const objectsMap = doc.getMap<BoardObject>('objects');
+        for (const obj of objects) {
+          objectsMap.set(obj.id, obj);
+        }
+      });
+      const allObjects = getAllObjects(doc.getMap<BoardObject>('objects'));
+      setBoardObjects(allObjects);
+    };
 
     const initSync = async (): Promise<void> => {
       try {
@@ -842,11 +857,13 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
           token: session.access_token,
         });
 
-        // If cleanup ran while we were awaiting getSession(), tear down immediately
         if (cancelled) {
           yjsProvider.destroy();
           return;
         }
+
+        let syncedViaWs = false;
+        let loadedFromSnapshot = false;
 
         yjsProvider.on('status', (event: { status: string }) => {
           const isConnected = event.status === 'connected';
@@ -856,17 +873,42 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
 
         // When the initial sync completes, the server has applied the persisted
         // snapshot to our doc via the Yjs sync protocol. Re-read the objects map
-        // so React state reflects the loaded data. Without this, the Y.Map
-        // observer (attached to an initially-empty doc) may not fire again
-        // after the sync fills it.
+        // so React state reflects the loaded data.
         yjsProvider.on('sync', (isSynced: boolean) => {
           console.log(`[Canvas] Yjs sync: ${isSynced ? 'synced' : 'syncing'}`);
           if (isSynced && !cancelled) {
+            syncedViaWs = true;
+            if (snapshotAbort) snapshotAbort.abort();
             const objects = doc.getMap<BoardObject>('objects');
             const allObjects = getAllObjects(objects);
             setBoardObjects(allObjects);
           }
         });
+
+        // Race: start snapshot fetch immediately alongside the WebSocket sync.
+        // Whichever resolves first wins. If WebSocket syncs first, the fetch is
+        // aborted. If the fetch completes first, objects are applied to the doc
+        // and will merge cleanly via CRDT if WebSocket connects later.
+        snapshotAbort = new AbortController();
+        fetch(`/api/boards/${encodeURIComponent(boardId)}/snapshot`, {
+          signal: snapshotAbort.signal,
+        })
+          .then((res) => {
+            if (!res.ok || syncedViaWs || cancelled) return null;
+            return res.json() as Promise<{ objects?: BoardObject[] }>;
+          })
+          .then((data) => {
+            if (!data || syncedViaWs || cancelled || loadedFromSnapshot) return;
+            if (Array.isArray(data.objects) && data.objects.length > 0) {
+              loadedFromSnapshot = true;
+              applySnapshotToDoc(doc, data.objects);
+              console.log(`[Canvas] Loaded ${data.objects.length} objects from snapshot`);
+            }
+          })
+          .catch((err: unknown) => {
+            if (err instanceof DOMException && err.name === 'AbortError') return;
+            console.error('[Canvas] Snapshot fetch error:', err);
+          });
 
         setYDoc(doc);
         setProvider(yjsProvider);
@@ -900,6 +942,7 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
 
     return () => {
       cancelled = true;
+      if (snapshotAbort) snapshotAbort.abort();
       console.log('[Canvas] Cleaning up connections...');
       if (cleanupProvider) {
         cleanupProvider.destroy();

@@ -41,9 +41,9 @@ describe('template seed builders', () => {
     const retrospectiveCounts = countTools('retrospective');
 
     expect(swotCounts.createFrame).toBe(4);
-    expect(swotCounts.createStickyNote).toBe(4);
+    expect(swotCounts.createStickyNote).toBe(12);
     expect(retrospectiveCounts.createFrame).toBe(3);
-    expect(retrospectiveCounts.createStickyNote).toBe(3);
+    expect(retrospectiveCounts.createStickyNote).toBe(9);
   });
 
   it('includes starter sticky notes in Kanban template and seeded sections in Lean Canvas', () => {

@@ -17,6 +17,8 @@ import type { BoardStateScopeContext, BoardStateViewport, ScopedBoardState } fro
 import type { CommandTraceContext } from '@/lib/ai-agent/tracing';
 import type { ExecutionTraceEvent, ExecutionTraceOptions } from '@/lib/ai-agent/executor';
 
+export const maxDuration = 60;
+
 const SYSTEM_PROMPT = `You are an AI assistant that controls a collaborative whiteboard called CollabBoard.
 
 You can ONLY manipulate the whiteboard by calling the provided tools. You must not answer general questions, write code, or do anything unrelated to board manipulation.
@@ -28,7 +30,16 @@ Rules:
 - Reasonable default positions are between 100–800 x and 100–600 y.
 - Default sticky note size: 200x200. Default shape sizes: 200x150.
 - Default sticky note color: #ffeb3b (yellow). Use named colors when the user specifies (e.g. red = #f87171, blue = #60a5fa, green = #a3e635, purple = #c084fc, orange = #fb923c).
-- If the user's command is not about the board, respond by calling no tools.`;
+- If the user's command is not about the board, respond by calling no tools.
+
+Complex layout guidance — when the user requests a structured template, ALWAYS create the full layout with frames AND sticky notes inside them. Never create just a single frame:
+- Kanban/task board: 3 column frames (To Do, In Progress, Done), each with a color-coded header sticky note and 2 task stickies.
+- SWOT analysis: 2x2 grid of frames (Strengths, Weaknesses, Opportunities, Threats), each with a header sticky and 2 sample content stickies.
+- Retrospective: 3 column frames (What Went Well, What Didn't, Action Items), each with a header sticky and 2 sample stickies.
+- Mind map: A central topic sticky note surrounded by 4-6 branch stickies arranged radially around it.
+- Pros/Cons: Two side-by-side frames with green "Pro" stickies on the left and red "Con" stickies on the right.
+- Eisenhower matrix: 2x2 grid of frames (Urgent+Important, Not Urgent+Important, Urgent+Not Important, Not Urgent+Not Important).
+- For any board/template/framework/matrix request: create multiple frames for structure AND sticky notes for content. Space frames 40px apart. Place stickies inside frames at 16px padding from frame edges.`;
 
 interface AICommandRequest {
   boardId: string;
@@ -40,6 +51,7 @@ interface AICommandResponse {
   success: boolean;
   actions: Array<{ tool: string; args: Record<string, unknown>; result: string }>;
   objectsAffected: string[];
+  inlineCreatedObjects?: Array<Record<string, unknown>>;
   error?: string;
 }
 
@@ -483,6 +495,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
         actions: [...plannedActions, ...planExecution.actions],
         objectsAffected: [...plannedObjectsAffected, ...planExecution.objectsAffected],
         ...(planExecution.error ? { error: planExecution.error } : {}),
+        ...(planExecution.inlineCreatedObjects?.length ? { inlineCreatedObjects: planExecution.inlineCreatedObjects } : {}),
       });
     }
 

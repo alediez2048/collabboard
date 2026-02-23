@@ -61,11 +61,15 @@ export function DashboardSectionContent({
     ? 'Try another search or clear the query to see more boards.'
     : sectionMeta.emptyStateDescription;
 
+  const boardOptions = boards
+    .filter((b) => b.created_by === userId)
+    .map((b) => ({ id: b.id, name: b.name }));
+
   if (activeSection === 'home') {
     if (boards.length === 0) {
       return (
         <section data-testid="dashboard-section-home" className="space-y-6">
-          <DashboardTemplateGallery />
+          <DashboardTemplateGallery boards={boardOptions} />
           <EmptySection
             testId="dashboard-empty-home"
             title={emptyStateTitle}
@@ -77,7 +81,7 @@ export function DashboardSectionContent({
 
     return (
       <section data-testid="dashboard-section-home" className="space-y-6">
-        <DashboardTemplateGallery />
+        <DashboardTemplateGallery boards={boardOptions} />
         <div data-testid={`dashboard-board-layout-${viewMode}`} className="sr-only" aria-hidden />
         {ownedBoards.length > 0 && (
           <div className={boardCollectionClassName(viewMode)}>

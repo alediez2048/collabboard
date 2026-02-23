@@ -636,8 +636,13 @@ router.post('/mutate', async (req: Request, res: Response): Promise<void> => {
       await saveSnapshot(boardId, doc);
     }
 
+    const createdObjects: Array<Record<string, unknown>> = result.affectedObjectIds
+      .map((id) => objects.get(id))
+      .filter((obj): obj is BoardObject => obj !== undefined)
+      .map((obj) => ({ ...obj }));
+
     console.log(`[AI Bridge] ${withTracePrefix(traceId)}${action.tool} on board ${boardId} → ${result.affectedObjectIds.join(', ')}`);
-    res.json({ success: true, affectedObjectIds: result.affectedObjectIds });
+    res.json({ success: true, affectedObjectIds: result.affectedObjectIds, objects: createdObjects });
   } catch (err) {
     console.error(`[AI Bridge] ${withTracePrefix(traceId)}Mutate error:`, err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -700,10 +705,15 @@ router.post('/mutate-batch', async (req: Request, res: Response): Promise<void> 
     }
 
     const affectedObjectIds = results.flatMap((result) => result.affectedObjectIds);
+    const createdObjects: Array<Record<string, unknown>> = affectedObjectIds
+      .map((id) => objects.get(id))
+      .filter((obj): obj is BoardObject => obj !== undefined)
+      .map((obj) => ({ ...obj }));
     res.json({
       success: true,
       results,
       affectedObjectIds,
+      objects: createdObjects,
     });
   } catch (err) {
     console.error(`[AI Bridge] ${withTracePrefix(traceId)}Mutate batch error:`, err);

@@ -87,16 +87,24 @@ function withOrigin(definitions: TemplateSeedDefinition[], origin: Point): Templ
 
 function buildSwotTemplateDefinitions(): TemplateSeedDefinition[] {
   const frameWidth = 320;
-  const frameHeight = 300;
+  const frameHeight = 520;
   const gapX = 40;
   const gapY = 40;
   const headerColors = ['#bfdbfe', '#fecaca', '#d9f99d', '#f5d0fe'] as const;
+  const seedColor = '#ffeb3b';
+  const seedTexts: Record<string, string[]> = {
+    Strengths: ['Core competency', 'Key advantage'],
+    Weaknesses: ['Improvement area', 'Key limitation'],
+    Opportunities: ['Growth potential', 'Market trend'],
+    Threats: ['Competitive risk', 'External challenge'],
+  };
 
   return SWOT_COLUMNS.flatMap((title, index) => {
     const column = index % 2;
     const row = Math.floor(index / 2);
     const frameX = column * (frameWidth + gapX);
     const frameY = row * (frameHeight + gapY);
+    const seeds = seedTexts[title] ?? [];
 
     return [
       {
@@ -126,19 +134,39 @@ function buildSwotTemplateDefinitions(): TemplateSeedDefinition[] {
           height: 200,
         },
       },
+      ...seeds.map((seedText, seedIndex) => ({
+        tool: 'createStickyNote' as const,
+        args: {
+          text: seedText,
+          color: seedColor,
+        },
+        footprint: {
+          x: frameX + 16,
+          y: frameY + 240 + seedIndex * 130,
+          width: 200,
+          height: 110,
+        },
+      })),
     ];
   });
 }
 
 function buildRetrospectiveTemplateDefinitions(): TemplateSeedDefinition[] {
   const columnWidth = 320;
-  const columnHeight = 440;
+  const columnHeight = 700;
   const gap = 40;
   const headerColors = ['#86efac', '#fca5a5', '#93c5fd'] as const;
+  const seedColor = '#ffeb3b';
+  const seedTexts: Record<string, string[]> = {
+    'What Went Well': ['Team collaboration', 'Delivery on time'],
+    "What Didn't": ['Scope creep', 'Unclear requirements'],
+    'Action Items': ['Improve standup format', 'Update documentation'],
+  };
 
   return RETRO_COLUMNS.flatMap((title, index) => {
     const x = index * (columnWidth + gap);
     const y = 0;
+    const seeds = seedTexts[title] ?? [];
     return [
       {
         tool: 'createFrame' as const,
@@ -167,6 +195,19 @@ function buildRetrospectiveTemplateDefinitions(): TemplateSeedDefinition[] {
           height: 200,
         },
       },
+      ...seeds.map((seedText, seedIndex) => ({
+        tool: 'createStickyNote' as const,
+        args: {
+          text: seedText,
+          color: seedColor,
+        },
+        footprint: {
+          x: x + 16,
+          y: y + 240 + seedIndex * 220,
+          width: 200,
+          height: 200,
+        },
+      })),
     ];
   });
 }

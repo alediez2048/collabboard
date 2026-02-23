@@ -44,7 +44,7 @@ describe('planComplexCommand', () => {
     const frameSteps = (plan?.steps ?? []).filter((step) => step.tool === 'createFrame');
     const stickySteps = (plan?.steps ?? []).filter((step) => step.tool === 'createStickyNote');
     expect(frameSteps).toHaveLength(4);
-    expect(stickySteps).toHaveLength(4);
+    expect(stickySteps).toHaveLength(12);
 
     const uniqueX = new Set(frameSteps.map((step) => Number(step.args.x)));
     const uniqueY = new Set(frameSteps.map((step) => Number(step.args.y)));

@@ -537,7 +537,7 @@ describe('AI agent requirements matrix', () => {
       const commands = [
         {
           command: 'Create a SWOT analysis template with four quadrants',
-          expectedStepCount: 8,
+          expectedStepCount: 16,
           expectedPrimaryTool: 'createFrame',
         },
         {
@@ -547,7 +547,7 @@ describe('AI agent requirements matrix', () => {
         },
         {
           command: "Set up a retrospective board with What Went Well, What Didn't, and Action Items columns",
-          expectedStepCount: 6,
+          expectedStepCount: 12,
           expectedPrimaryTool: 'createFrame',
         },
       ] as const;

@@ -4,6 +4,7 @@ import { BoardNameEditable } from '@/components/board-name-editable';
 import { DeleteBoardButton } from '@/components/delete-board-button';
 import { DashboardBoardPreview } from '@/components/dashboard/DashboardBoardPreview';
 import { DashboardStarButton } from '@/components/dashboard/DashboardStarButton';
+import { SaveAsTemplateButton } from '@/components/dashboard/SaveAsTemplateButton';
 import type { DashboardViewMode } from '@/lib/dashboard/navigation';
 import type { ReactElement } from 'react';
 
@@ -84,6 +85,7 @@ export function DashboardBoardCard({
             Open board
           </Link>
           <div className="flex items-center gap-2">
+            {isOwnedByCurrentUser && <SaveAsTemplateButton boardId={board.id} boardName={board.name} />}
             <DashboardStarButton boardId={board.id} initialIsStarred={board.is_starred} />
             {isOwnedByCurrentUser && <DeleteBoardButton boardId={board.id} boardName={board.name} />}
           </div>

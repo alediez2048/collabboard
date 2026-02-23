@@ -5,12 +5,12 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
 }));
 
-vi.mock('@/lib/ai-agent/executor', () => ({
-  executeToolCalls: vi.fn(),
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(),
 }));
 
-import { createClient } from '@/lib/supabase/server';
-import { executeToolCalls } from '@/lib/ai-agent/executor';
+import { createClient as createServerClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { POST } from '@/app/api/boards/template/route';
 
 interface QueryError {
@@ -98,6 +98,17 @@ function makeSupabaseMock(args: {
   return { client, boardsTable, deleteEqFirst, deleteEqSecond };
 }
 
+function makeServiceClientMock(args?: { upsertError?: QueryError | null }): ReturnType<typeof vi.fn> {
+  const upsertFn = vi.fn().mockResolvedValue({
+    error: args?.upsertError ?? null,
+  });
+  const fromFn = vi.fn(() => ({
+    upsert: upsertFn,
+  }));
+
+  return vi.fn(() => ({ from: fromFn }));
+}
+
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/boards/template', {
     method: 'POST',
@@ -108,17 +119,19 @@ function makeRequest(body: unknown): NextRequest {
   });
 }
 
-const mockCreateClient = vi.mocked(createClient);
-const mockExecuteToolCalls = vi.mocked(executeToolCalls);
+const mockCreateServerClient = vi.mocked(createServerClient);
+const mockCreateServiceClient = vi.mocked(createServiceClient);
 
 describe('POST /api/boards/template', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
   });
 
   it('returns 401 when user is unauthenticated', async () => {
     const supabase = makeSupabaseMock({ userId: null });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
 
     const response = await POST(makeRequest({ template: 'swot' }));
     expect(response.status).toBe(401);
@@ -126,7 +139,7 @@ describe('POST /api/boards/template', () => {
 
   it('returns 400 for invalid template payload', async () => {
     const supabase = makeSupabaseMock({ userId: 'user-1' });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
 
     const response = await POST(makeRequest({ template: 'invalid-template' }));
     expect(response.status).toBe(400);
@@ -140,22 +153,18 @@ describe('POST /api/boards/template', () => {
         error: { message: 'Insert failed' },
       },
     });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
 
     const response = await POST(makeRequest({ template: 'kanban' }));
     expect(response.status).toBe(500);
   });
 
-  it('rolls back board creation when template seeding fails', async () => {
+  it('rolls back board creation when snapshot save fails', async () => {
     const supabase = makeSupabaseMock({ userId: 'user-1' });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
-    mockExecuteToolCalls.mockResolvedValue({
-      success: false,
-      actions: [],
-      objectsAffected: [],
-      toolOutputs: [],
-      error: 'Bridge seed failure',
-    });
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
+    mockCreateServiceClient.mockReturnValue(
+      makeServiceClientMock({ upsertError: { message: 'Snapshot save failed' } })() as never,
+    );
 
     const response = await POST(makeRequest({ template: 'retrospective' }));
     expect(response.status).toBe(500);
@@ -163,15 +172,12 @@ describe('POST /api/boards/template', () => {
     expect(supabase.deleteEqFirst).toHaveBeenCalledWith('id', 'board-1');
   });
 
-  it('creates a board and seeds template through executor path', async () => {
+  it('creates a board and seeds template objects via direct Yjs snapshot', async () => {
     const supabase = makeSupabaseMock({ userId: 'user-123' });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
-    mockExecuteToolCalls.mockResolvedValue({
-      success: true,
-      actions: [{ tool: 'createFrame', args: {}, result: 'Affected: object-1' }],
-      objectsAffected: ['object-1'],
-      toolOutputs: [],
-    });
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
+    mockCreateServiceClient.mockReturnValue(
+      makeServiceClientMock()() as never,
+    );
 
     const response = await POST(makeRequest({ template: 'swot' }));
     const body = (await response.json()) as {
@@ -182,20 +188,14 @@ describe('POST /api/boards/template', () => {
     expect(response.status).toBe(201);
     expect(body.board?.id).toBe('board-1');
     expect(body.template).toBe('swot');
-    expect(mockExecuteToolCalls).toHaveBeenCalledTimes(1);
-    expect(mockExecuteToolCalls.mock.calls[0]?.[1]).toBe('board-1');
-    expect(mockExecuteToolCalls.mock.calls[0]?.[2]).toBe('user-123');
   });
 
   it('accepts lean_canvas template id for board creation', async () => {
     const supabase = makeSupabaseMock({ userId: 'user-123' });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
-    mockExecuteToolCalls.mockResolvedValue({
-      success: true,
-      actions: [{ tool: 'createFrame', args: {}, result: 'Affected: object-1' }],
-      objectsAffected: ['object-1'],
-      toolOutputs: [],
-    });
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
+    mockCreateServiceClient.mockReturnValue(
+      makeServiceClientMock()() as never,
+    );
 
     const response = await POST(makeRequest({ template: 'lean_canvas' }));
     const body = (await response.json()) as {
@@ -205,18 +205,14 @@ describe('POST /api/boards/template', () => {
 
     expect(response.status).toBe(201);
     expect(body.template).toBe('lean_canvas');
-    expect(mockExecuteToolCalls).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes legacy brainstorm template id to lean_canvas', async () => {
     const supabase = makeSupabaseMock({ userId: 'user-123' });
-    mockCreateClient.mockResolvedValue(supabase.client as never);
-    mockExecuteToolCalls.mockResolvedValue({
-      success: true,
-      actions: [{ tool: 'createFrame', args: {}, result: 'Affected: object-1' }],
-      objectsAffected: ['object-1'],
-      toolOutputs: [],
-    });
+    mockCreateServerClient.mockResolvedValue(supabase.client as never);
+    mockCreateServiceClient.mockReturnValue(
+      makeServiceClientMock()() as never,
+    );
 
     const response = await POST(makeRequest({ template: 'brainstorm' }));
     const body = (await response.json()) as {
@@ -225,6 +221,5 @@ describe('POST /api/boards/template', () => {
 
     expect(response.status).toBe(201);
     expect(body.template).toBe('lean_canvas');
-    expect(mockExecuteToolCalls).toHaveBeenCalledTimes(1);
   });
 });
