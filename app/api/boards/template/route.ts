@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import { createClient as createServerClient } from '@/lib/supabase/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   getTemplateCatalogItem,
   normalizeTemplateId,
@@ -29,7 +29,7 @@ function isTemplateCreateRequestBody(value: unknown): value is TemplateCreateReq
   return typeof candidate.template === 'string';
 }
 
-function getServiceClient(): ReturnType<typeof createClient> {
+function getServiceClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {

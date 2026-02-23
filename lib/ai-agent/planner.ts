@@ -618,7 +618,7 @@ function placeTemplate(items: TemplateSeedDefinition[], state: ScopedBoardState)
 }
 
 function planNamedTemplate(
-  templateId: Extract<TemplateId, 'swot' | 'retrospective' | 'lean_canvas'>,
+  templateId: Extract<TemplateId, 'kanban' | 'swot' | 'retrospective' | 'lean_canvas' | 'roadmap' | 'eisenhower'>,
   boardState?: ScopedBoardState,
 ): ComplexCommandPlan {
   if (!boardState) {

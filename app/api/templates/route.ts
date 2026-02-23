@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { createClient as createServiceClient, type SupabaseClient } from '@supabase/supabase-js';
 import * as Y from 'yjs';
 import type { BoardObject } from '@/lib/yjs/board-doc';
 import { NextRequest, NextResponse } from 'next/server';
 
-function getServiceSupabase(): ReturnType<typeof createServiceClient> {
+function getServiceSupabase(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
