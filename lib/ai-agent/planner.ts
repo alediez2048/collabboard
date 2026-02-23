@@ -1031,6 +1031,61 @@ export function planComplexCommand(command: string, boardState?: ScopedBoardStat
     return planNamedTemplate('lean_canvas', boardState);
   }
 
+  if (
+    /\broadmap\b/.test(normalized)
+    && /\b(create|build|set\s*up|setup|make|add|generate|draw|template|board)\b/.test(normalized)
+  ) {
+    return planNamedTemplate('roadmap', boardState);
+  }
+
+  if (
+    /\beisenhower\b/.test(normalized)
+    || (/\bpriority\s*(matrix|grid)\b/.test(normalized)
+      && /\b(create|build|set\s*up|setup|make|add|generate|draw)\b/.test(normalized))
+    || (/\burgent\b/.test(normalized) && /\bimportant\b/.test(normalized)
+      && /\b(matrix|grid|quadrant|template|board)\b/.test(normalized))
+  ) {
+    return planNamedTemplate('eisenhower', boardState);
+  }
+
+  if (
+    /\b(mind\s*map|brainstorm\s*map|idea\s*map|concept\s*map)\b/.test(normalized)
+    && /\b(create|build|set\s*up|setup|make|add|generate|draw)\b/.test(normalized)
+  ) {
+    if (!boardState) {
+      return { requiresBoardState: true, steps: [] };
+    }
+    const centerX = 400;
+    const centerY = 400;
+    const branchColors = ['#60a5fa', '#a3e635', '#c084fc', '#fb923c', '#f472b6', '#fde68a'] as const;
+    const branchLabels = ['Branch 1', 'Branch 2', 'Branch 3', 'Branch 4', 'Branch 5', 'Branch 6'];
+    const angleStep = (2 * Math.PI) / branchLabels.length;
+    const radius = 300;
+
+    const template: TemplateSeedDefinition[] = [
+      {
+        tool: 'createStickyNote',
+        args: { text: 'Central Topic', color: '#ffeb3b' },
+        footprint: { x: centerX - 100, y: centerY - 100, width: 200, height: 200 },
+      },
+      ...branchLabels.map((label, index) => ({
+        tool: 'createStickyNote' as const,
+        args: { text: label, color: branchColors[index % branchColors.length] },
+        footprint: {
+          x: centerX - 100 + Math.round(Math.cos(angleStep * index - Math.PI / 2) * radius),
+          y: centerY - 100 + Math.round(Math.sin(angleStep * index - Math.PI / 2) * radius),
+          width: 200,
+          height: 200,
+        },
+      })),
+    ];
+
+    return {
+      requiresBoardState: false,
+      steps: placeTemplate(template, boardState),
+    };
+  }
+
   if (normalized.includes('grid of sticky notes') && normalized.includes('pros and cons')) {
     return planProsConsGrid(command, boardState);
   }

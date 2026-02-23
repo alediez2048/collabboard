@@ -120,7 +120,7 @@ function buildStickyState(objects: Array<{ id: string; x: number; y: number; col
 describe('AI agent requirements matrix', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_API_KEY = 'sk-test-key';
     mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
     mockStartTrace.mockReturnValue(traceContext as never);
     mockFinishTrace.mockResolvedValue(undefined);

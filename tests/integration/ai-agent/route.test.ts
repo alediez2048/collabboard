@@ -112,7 +112,7 @@ function makeRequest(body: Record<string, unknown>) {
 describe('POST /api/ai/command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_API_KEY = 'sk-test-key';
     mockStartTrace.mockReturnValue(mockTraceContext as never);
     mockRecordTraceEvent.mockResolvedValue(undefined);
     mockFinishTrace.mockResolvedValue(undefined);

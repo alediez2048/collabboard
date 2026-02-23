@@ -74,7 +74,7 @@ function makeRequest(body: Record<string, unknown>) {
 describe('POST /api/ai/command complex planning', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_API_KEY = 'sk-test-key';
     mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
     mockStartTrace.mockReturnValue(mockTraceContext as never);
     mockFinishTrace.mockResolvedValue(undefined);

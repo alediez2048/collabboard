@@ -1,6 +1,6 @@
 import type { LayoutRect } from '@/lib/ai-agent/layout';
 
-export type TemplateId = 'kanban' | 'swot' | 'lean_canvas' | 'retrospective';
+export type TemplateId = 'kanban' | 'swot' | 'lean_canvas' | 'retrospective' | 'roadmap' | 'eisenhower';
 
 export interface TemplateCatalogItem {
   id: TemplateId;
@@ -53,6 +53,18 @@ export const TEMPLATE_CATALOG: readonly TemplateCatalogItem[] = [
     title: 'Retrospective',
     description: 'Capture wins, issues, and follow-up action items.',
     boardName: 'Retrospective',
+  },
+  {
+    id: 'roadmap',
+    title: 'Roadmap',
+    description: 'Plan milestones across Now, Next, and Later horizons.',
+    boardName: 'Roadmap',
+  },
+  {
+    id: 'eisenhower',
+    title: 'Eisenhower Matrix',
+    description: 'Prioritize tasks by urgency and importance.',
+    boardName: 'Eisenhower Matrix',
   },
 ] as const;
 
@@ -366,6 +378,90 @@ function buildLeanCanvasTemplateDefinitions(): TemplateSeedDefinition[] {
   ];
 }
 
+function buildRoadmapTemplateDefinitions(): TemplateSeedDefinition[] {
+  const ROADMAP_COLUMNS = ['Now', 'Next', 'Later'] as const;
+  const columnWidth = 320;
+  const columnHeight = 700;
+  const gap = 40;
+  const headerColors = ['#86efac', '#93c5fd', '#f5d0fe'] as const;
+  const seedColor = '#ffeb3b';
+  const seedTexts: Record<string, string[]> = {
+    Now: ['Current sprint work', 'Bug fixes & polish'],
+    Next: ['Upcoming feature A', 'Research & prototype'],
+    Later: ['Long-term vision item', 'Scale & optimize'],
+  };
+
+  return ROADMAP_COLUMNS.flatMap((title, index) => {
+    const x = index * (columnWidth + gap);
+    const y = 0;
+    const seeds = seedTexts[title] ?? [];
+    return [
+      {
+        tool: 'createFrame' as const,
+        args: { title, width: columnWidth, height: columnHeight },
+        footprint: { x, y, width: columnWidth, height: columnHeight },
+      },
+      {
+        tool: 'createStickyNote' as const,
+        args: { text: title, color: headerColors[index] },
+        footprint: { x: x + 16, y: y + 16, width: 200, height: 200 },
+      },
+      ...seeds.map((seedText, seedIndex) => ({
+        tool: 'createStickyNote' as const,
+        args: { text: seedText, color: seedColor },
+        footprint: { x: x + 16, y: y + 240 + seedIndex * 220, width: 200, height: 200 },
+      })),
+    ];
+  });
+}
+
+function buildEisenhowerTemplateDefinitions(): TemplateSeedDefinition[] {
+  const QUADRANTS = [
+    'Urgent & Important',
+    'Not Urgent & Important',
+    'Urgent & Not Important',
+    'Not Urgent & Not Important',
+  ] as const;
+  const frameWidth = 320;
+  const frameHeight = 520;
+  const gapX = 40;
+  const gapY = 40;
+  const headerColors = ['#fca5a5', '#93c5fd', '#fde68a', '#d1d5db'] as const;
+  const seedColor = '#ffeb3b';
+  const seedTexts: Record<string, string[]> = {
+    'Urgent & Important': ['Do it now', 'Crisis response'],
+    'Not Urgent & Important': ['Schedule it', 'Strategic planning'],
+    'Urgent & Not Important': ['Delegate it', 'Routine requests'],
+    'Not Urgent & Not Important': ['Eliminate it', 'Time wasters'],
+  };
+
+  return QUADRANTS.flatMap((title, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const frameX = column * (frameWidth + gapX);
+    const frameY = row * (frameHeight + gapY);
+    const seeds = seedTexts[title] ?? [];
+
+    return [
+      {
+        tool: 'createFrame' as const,
+        args: { title, width: frameWidth, height: frameHeight },
+        footprint: { x: frameX, y: frameY, width: frameWidth, height: frameHeight },
+      },
+      {
+        tool: 'createStickyNote' as const,
+        args: { text: title, color: headerColors[index] },
+        footprint: { x: frameX + 16, y: frameY + 16, width: 200, height: 200 },
+      },
+      ...seeds.map((seedText, seedIndex) => ({
+        tool: 'createStickyNote' as const,
+        args: { text: seedText, color: seedColor },
+        footprint: { x: frameX + 16, y: frameY + 240 + seedIndex * 130, width: 200, height: 110 },
+      })),
+    ];
+  });
+}
+
 export function buildTemplateSeedDefinitions(templateId: TemplateId): TemplateSeedDefinition[] {
   switch (templateId) {
     case 'kanban':
@@ -376,6 +472,10 @@ export function buildTemplateSeedDefinitions(templateId: TemplateId): TemplateSe
       return buildLeanCanvasTemplateDefinitions();
     case 'retrospective':
       return buildRetrospectiveTemplateDefinitions();
+    case 'roadmap':
+      return buildRoadmapTemplateDefinitions();
+    case 'eisenhower':
+      return buildEisenhowerTemplateDefinitions();
   }
 }
 

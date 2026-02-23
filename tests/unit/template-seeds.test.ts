@@ -13,9 +13,9 @@ function countTools(templateId: TemplateId): Record<string, number> {
 }
 
 describe('template seed builders', () => {
-  it('exports exactly the four quick-start templates for dashboard creation', () => {
+  it('exports all quick-start templates for dashboard creation', () => {
     const ids = TEMPLATE_CATALOG.map((template) => template.id);
-    expect(ids).toEqual(['kanban', 'swot', 'lean_canvas', 'retrospective']);
+    expect(ids).toEqual(['kanban', 'swot', 'lean_canvas', 'retrospective', 'roadmap', 'eisenhower']);
   });
 
   it('builds deterministic output for every template id', () => {

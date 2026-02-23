@@ -499,8 +499,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       });
     }
 
-    // Call OpenAI with tool-calling (traced via tracing adapter from 1.3 reference pattern)
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey || !apiKey.startsWith('sk-')) {
+      console.error(
+        `[AI Command] OPENAI_API_KEY is missing or invalid (got "${apiKey?.slice(0, 8) ?? '(empty)'}..."). ` +
+        'Shell env vars override .env.local — restart the dev server in a fresh terminal.',
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          actions: [],
+          objectsAffected: [],
+          error: 'OpenAI API key is misconfigured. Restart the dev server in a fresh terminal so .env.local is loaded correctly.',
+        },
+        { status: 500 },
+      );
+    }
+
+    const openai = new OpenAI({ apiKey });
     setCommandTraceExecutionPath(traceContext, 'llm-single-step');
     void recordCommandTraceEvent(traceContext, 'route-decision', {
       path: 'llm-single-step',
@@ -820,6 +836,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
     });
   } catch (err) {
     console.error('[AI Command] Unexpected error:', err);
+
+    const isApiKeyError =
+      err instanceof Error && (err.message.includes('Incorrect API key') || err.message.includes('invalid_api_key'));
+    const userFacingError = isApiKeyError
+      ? 'OpenAI API key is misconfigured. Restart the dev server in a fresh terminal so .env.local is loaded correctly.'
+      : 'Internal server error';
+
     if (traceContext) {
       void finishCommandTrace(traceContext, {
         success: false,
@@ -828,7 +851,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
       });
     }
     return NextResponse.json(
-      { success: false, actions: [], objectsAffected: [], error: 'Internal server error' },
+      { success: false, actions: [], objectsAffected: [], error: userFacingError },
       { status: 500 },
     );
   }
