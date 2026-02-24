@@ -511,6 +511,20 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
     return () => clearTimeout(timer);
   }, [boardId, zoom, pan, viewportReady]);
 
+  // Flush viewport to localStorage on page close and React unmount so a quick
+  // refresh within the debounce window doesn't lose the last position.
+  useEffect(() => {
+    if (!viewportReady) return;
+    const handleBeforeUnload = (): void => {
+      saveViewport(boardId, viewportRef.current);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      saveViewport(boardId, viewportRef.current);
+    };
+  }, [boardId, viewportReady]);
+
   // Lightweight FPS monitor for live performance HUD.
   useEffect(() => {
     let rafId = 0;
@@ -1120,7 +1134,7 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
       // Also clear on React unmount (e.g. navigating away within the SPA)
       provider.awareness.setLocalState(null);
     };
-  }, [provider, userColor]); // re-run when provider initializes or color resolves
+  }, [provider, userColor, sessionUserId]); // re-run when provider initializes, color resolves, or session loads
 
   // Track online user count for live performance indicator panel.
   useEffect(() => {

@@ -11,12 +11,19 @@ import { Duplex } from 'stream';
 const app = express();
 const server = createServer(app);
 
-// Enable CORS for API routes
+// Enable CORS for API routes — allow Vercel preview/deployment URLs in production
 app.use(
   cors({
     origin:
       process.env.NODE_ENV === 'production'
-        ? ['https://collabboard-gauntlet.vercel.app']
+        ? (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+            const vercelPattern = /^https:\/\/collabboard-gauntlet[A-Za-z0-9-]*\.vercel\.app$/;
+            if (!origin || vercelPattern.test(origin)) {
+              cb(null, true);
+            } else {
+              cb(new Error(`Origin ${origin} not allowed by CORS`));
+            }
+          }
         : ['http://localhost:3000', 'http://127.0.0.1:3000'],
     credentials: true,
   })

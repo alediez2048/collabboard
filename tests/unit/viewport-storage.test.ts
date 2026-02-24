@@ -83,6 +83,29 @@ describe('loadViewport — fallback behaviour', () => {
   });
 });
 
+describe('loadViewport — empty or missing boardId edge cases', () => {
+  it('returns default when boardId is empty string', () => {
+    expect(loadViewport('')).toEqual(defaultViewport);
+  });
+
+  it('saves and loads with a UUID-style boardId', () => {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    const state: ViewportState = { zoom: 1.8, pan: { x: 42, y: -99 } };
+    saveViewport(id, state);
+    const loaded = loadViewport(id);
+    expect(loaded.zoom).toBeCloseTo(1.8);
+    expect(loaded.pan).toEqual({ x: 42, y: -99 });
+  });
+
+  it('overwrites a previous save for the same board', () => {
+    saveViewport('board-ow', { zoom: 2, pan: { x: 10, y: 10 } });
+    saveViewport('board-ow', { zoom: 0.5, pan: { x: -5, y: -5 } });
+    const loaded = loadViewport('board-ow');
+    expect(loaded.zoom).toBeCloseTo(0.5);
+    expect(loaded.pan).toEqual({ x: -5, y: -5 });
+  });
+});
+
 describe('loadViewport — zoom clamping', () => {
   it('clamps zoom below 0.01 to 0.01', () => {
     saveViewport('board-clamp', { zoom: 0.001, pan: { x: 0, y: 0 } });

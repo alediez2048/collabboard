@@ -130,6 +130,77 @@ describe('Presence awareness state extraction', () => {
   });
 });
 
+describe('Presence deduplication by userId', () => {
+  function deduplicateByUserId(
+    statesMap: Map<number, Record<string, unknown>>,
+  ): AwarenessUser[] {
+    const userMap = new Map<string, AwarenessUser>();
+    for (const state of statesMap.values()) {
+      const user = (state as AwarenessState).user;
+      if (user) {
+        userMap.set(user.userId, user);
+      }
+    }
+    return Array.from(userMap.values());
+  }
+
+  it('collapses multiple awareness entries for the same userId into one', () => {
+    const alice: AwarenessUser = {
+      userId: 'user-alice',
+      userName: 'Alice',
+      color: '#ef4444',
+      isOnline: true,
+    };
+
+    const states = new Map<number, Record<string, unknown>>([
+      [1, { user: alice }],
+      [2, { user: { ...alice, color: '#10b981' } }],
+      [3, { user: alice }],
+    ]);
+
+    const result = deduplicateByUserId(states);
+    expect(result).toHaveLength(1);
+    expect(result[0].userId).toBe('user-alice');
+  });
+
+  it('keeps entries from different userIds when mixed with duplicates', () => {
+    const alice: AwarenessUser = {
+      userId: 'user-alice',
+      userName: 'Alice',
+      color: '#ef4444',
+      isOnline: true,
+    };
+    const bob: AwarenessUser = {
+      userId: 'user-bob',
+      userName: 'Bob',
+      color: '#3b82f6',
+      isOnline: true,
+    };
+
+    const states = new Map<number, Record<string, unknown>>([
+      [1, { user: alice }],
+      [2, { user: bob }],
+      [3, { user: alice }],
+      [4, {}],
+    ]);
+
+    const result = deduplicateByUserId(states);
+    expect(result).toHaveLength(2);
+    const userIds = result.map((u) => u.userId);
+    expect(userIds).toContain('user-alice');
+    expect(userIds).toContain('user-bob');
+  });
+
+  it('returns empty when all entries lack a user field', () => {
+    const states = new Map<number, Record<string, unknown>>([
+      [1, {}],
+      [2, { cursor: { x: 0, y: 0 } }],
+    ]);
+
+    expect(deduplicateByUserId(states)).toEqual([]);
+  });
+});
+
 describe('AwarenessState type', () => {
   it('allows a state with no user field (partial state)', () => {
     const state: AwarenessState = {};

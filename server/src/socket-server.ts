@@ -11,12 +11,26 @@ interface CursorMoveEvent {
   sentAt?: number;
 }
 
+function getAllowedOrigins(): string[] | ((origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => void) {
+  if (process.env.NODE_ENV !== 'production') {
+    return ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  }
+
+  const vercelPattern = /^https:\/\/collabboard-gauntlet[A-Za-z0-9-]*\.vercel\.app$/;
+
+  return (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void): void => {
+    if (!origin || vercelPattern.test(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  };
+}
+
 export function setupSocketIO(httpServer: HTTPServer): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' 
-        ? ['https://collabboard-gauntlet.vercel.app']
-        : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      origin: getAllowedOrigins(),
       credentials: true,
     },
   });
