@@ -1207,7 +1207,7 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
   };
   applySelectionRef.current = applySelection;
 
-  const handleCursorLatencySample = (latencyMs: number): void => {
+  const handleCursorLatencySample = useCallback((latencyMs: number): void => {
     const averageLatencyMs = appendRollingSample(
       cursorSyncSamplesRef.current,
       latencyMs,
@@ -1218,7 +1218,7 @@ export function Canvas({ boardId, boardName, boardOwnerId }: CanvasProps) {
       setCursorSyncLatencyMs(averageLatencyMs);
       performanceHudUpdateRef.current.cursorLatencyUpdatedAt = now;
     }
-  };
+  }, []);
 
   const syncUndoRedoAvailability = useCallback((): void => {
     const undoManager = undoManagerRef.current;
