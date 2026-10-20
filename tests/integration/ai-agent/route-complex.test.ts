@@ -34,6 +34,8 @@ import {
 } from '@/lib/ai-agent/tracing';
 import { POST } from '@/app/api/ai/command/route';
 
+const BOARD_ID = 'b0a2d1c4-1111-4111-8111-111111111111';
+
 const mockCreateClient = vi.mocked(createClient);
 const mockExecute = vi.mocked(executeToolCalls);
 const mockTracing = vi.mocked(createTracedCompletion);
@@ -44,7 +46,7 @@ const mockFinishTrace = vi.mocked(finishCommandTrace);
 const mockTraceContext = {
   traceId: 'trace-complex-1',
   traceName: 'ai-board-command',
-  boardId: 'board-1',
+  boardId: BOARD_ID,
   userId: 'user-123',
   command: 'Create a SWOT analysis',
   startedAtMs: 0,
@@ -52,7 +54,16 @@ const mockTraceContext = {
   events: [],
 };
 
-function makeAuthenticatedSupabase() {
+function makeBoardQuery(board: { id: string } | null) {
+  const query = {
+    select: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    maybeSingle: vi.fn().mockResolvedValue({ data: board, error: null }),
+  };
+  return query;
+}
+
+function makeAuthenticatedSupabase(board: { id: string } | null = { id: BOARD_ID }) {
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -60,6 +71,7 @@ function makeAuthenticatedSupabase() {
         error: null,
       }),
     },
+    from: vi.fn(() => makeBoardQuery(board)),
   };
 }
 
@@ -115,7 +127,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Create a SWOT analysis' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Create a SWOT analysis' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -183,7 +195,7 @@ describe('POST /api/ai/command complex planning', () => {
       });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Arrange these sticky notes in a grid' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Arrange these sticky notes in a grid' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -206,7 +218,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Generate 100 objects' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Generate 100 objects' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -233,7 +245,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Add 1000 green sticky notes' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Add 1000 green sticky notes' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -259,7 +271,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Create 1000' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Create 1000' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -292,7 +304,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Add 1000 arrows' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Add 1000 arrows' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -318,7 +330,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Add fifty sticky notes for ideas' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Add fifty sticky notes for ideas' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -343,7 +355,7 @@ describe('POST /api/ai/command complex planning', () => {
     });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Add 100 green ones afterwards' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Add 100 green ones afterwards' }),
     );
     const body = await response.json() as Record<string, unknown>;
 
@@ -380,7 +392,7 @@ describe('POST /api/ai/command complex planning', () => {
       });
 
     const response = await POST(
-      makeRequest({ boardId: 'board-1', command: 'Add 100 green ones afterwards' }),
+      makeRequest({ boardId: BOARD_ID, command: 'Add 100 green ones afterwards' }),
     );
     const body = await response.json() as {
       success: boolean;
@@ -508,7 +520,7 @@ describe('POST /api/ai/command complex planning', () => {
 
     const response = await POST(
       makeRequest({
-        boardId: 'board-1',
+        boardId: BOARD_ID,
         command: 'Create a kanban board with springboards and resize all sticky notes and get them inside the kanban board',
       }),
     );

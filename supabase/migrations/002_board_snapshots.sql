@@ -1,5 +1,5 @@
--- TICKET-07: Board state snapshots
--- Run in Supabase Dashboard > SQL Editor
+-- Board state snapshots (Yjs document per board)
+-- Run in Supabase Dashboard > SQL Editor, after 001_boards.sql (safe to re-run).
 
 CREATE TABLE IF NOT EXISTS board_snapshots (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS board_snapshots (
 -- Optionally enable RLS and allow only service_role:
 ALTER TABLE board_snapshots ENABLE ROW LEVEL SECURITY;
 
--- Boards owners can read their board's snapshot (for debugging)
+-- Board owners can read their board's snapshot (for debugging)
+DROP POLICY IF EXISTS "snapshot_select_owner" ON board_snapshots;
 CREATE POLICY "snapshot_select_owner"
   ON board_snapshots FOR SELECT
   USING (

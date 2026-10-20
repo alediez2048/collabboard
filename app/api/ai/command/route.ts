@@ -19,6 +19,9 @@ import type { ExecutionTraceEvent, ExecutionTraceOptions } from '@/lib/ai-agent/
 
 export const maxDuration = 60;
 
+const MAX_COMMAND_CHARS = 2000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const SYSTEM_PROMPT = `You are an AI assistant that controls a collaborative whiteboard called CollabBoard.
 
 You can ONLY manipulate the whiteboard by calling the provided tools. You must not answer general questions, write code, or do anything unrelated to board manipulation.
@@ -308,6 +311,36 @@ export async function POST(request: NextRequest): Promise<NextResponse<AICommand
 
     const trimmedBoardId = boardId.trim();
     const trimmedCommand = command.trim();
+
+    if (!UUID_PATTERN.test(trimmedBoardId)) {
+      return NextResponse.json(
+        { success: false, actions: [], objectsAffected: [], error: 'boardId is invalid' },
+        { status: 400 },
+      );
+    }
+
+    if (trimmedCommand.length > MAX_COMMAND_CHARS) {
+      return NextResponse.json(
+        { success: false, actions: [], objectsAffected: [], error: `command must be ${MAX_COMMAND_CHARS} characters or fewer` },
+        { status: 413 },
+      );
+    }
+
+    // Only the owner or a member may drive the AI on a board. Row-level
+    // security on `boards` (supabase/migrations/001_boards.sql) hides every
+    // other board, so a non-member gets no row back here.
+    const { data: accessibleBoard, error: boardError } = await supabase
+      .from('boards')
+      .select('id')
+      .eq('id', trimmedBoardId)
+      .maybeSingle();
+
+    if (boardError || !accessibleBoard) {
+      return NextResponse.json(
+        { success: false, actions: [], objectsAffected: [], error: 'Board not found or access denied' },
+        { status: 403 },
+      );
+    }
 
     traceContext = startCommandTrace({
       traceName: 'ai-board-command',

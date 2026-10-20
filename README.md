@@ -69,7 +69,11 @@ For local full-stack dev defaults:
 - `REALTIME_SERVER_URL=http://localhost:4000`
 - `PORT=4000` (server)
 
-### 4) Run both processes
+### 4) Create the database schema
+
+In the Supabase SQL Editor, run the files in `supabase/migrations/` in order: `001_boards.sql`, `002_board_snapshots.sql`, `003_board_user_state.sql`. Each is safe to re-run. Row-level security limits every board to its owner and the members who joined it by link.
+
+### 5) Run both processes
 
 Terminal 1 (realtime server):
 

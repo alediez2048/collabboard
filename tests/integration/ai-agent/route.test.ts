@@ -38,6 +38,8 @@ import {
 } from '@/lib/ai-agent/tracing';
 import { POST } from '@/app/api/ai/command/route';
 
+const BOARD_ID = 'b0a2d1c4-1111-4111-8111-111111111111';
+
 const mockCreateClient = vi.mocked(createClient);
 const mockExecute = vi.mocked(executeToolCalls);
 const mockTracing = vi.mocked(createTracedCompletion);
@@ -49,7 +51,7 @@ const mockFinishTrace = vi.mocked(finishCommandTrace);
 const mockTraceContext = {
   traceId: 'trace-1',
   traceName: 'ai-board-command',
-  boardId: 'board-1',
+  boardId: BOARD_ID,
   userId: 'user-123',
   command: 'Add a note',
   startedAtMs: 0,
@@ -57,7 +59,16 @@ const mockTraceContext = {
   events: [],
 };
 
-function makeAuthenticatedSupabase() {
+function makeBoardQuery(board: { id: string } | null) {
+  const query = {
+    select: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    maybeSingle: vi.fn().mockResolvedValue({ data: board, error: null }),
+  };
+  return query;
+}
+
+function makeAuthenticatedSupabase(board: { id: string } | null = { id: BOARD_ID }) {
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -65,6 +76,7 @@ function makeAuthenticatedSupabase() {
         error: null,
       }),
     },
+    from: vi.fn(() => makeBoardQuery(board)),
   };
 }
 
@@ -121,8 +133,28 @@ describe('POST /api/ai/command', () => {
   it('returns 401 when user is not authenticated', async () => {
     mockCreateClient.mockResolvedValue(makeUnauthenticatedSupabase() as never);
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Add a note' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Add a note' }));
     expect(response.status).toBe(401);
+  });
+
+  it('returns 403 when the user is neither owner nor member of the board', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase(null) as never);
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Add a note' }));
+    expect(response.status).toBe(403);
+    expect(mockTracing).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when boardId is not a UUID', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    const response = await POST(makeRequest({ boardId: '../other', command: 'Add a note' }));
+    expect(response.status).toBe(400);
+  });
+
+  it('returns 413 when the command is too long', async () => {
+    mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'a'.repeat(2001) }));
+    expect(response.status).toBe(413);
+    expect(mockTracing).not.toHaveBeenCalled();
   });
 
   it('returns 400 when boardId is missing', async () => {
@@ -135,14 +167,14 @@ describe('POST /api/ai/command', () => {
   it('returns 400 when command is missing', async () => {
     mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
 
-    const response = await POST(makeRequest({ boardId: 'board-1' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID }));
     expect(response.status).toBe(400);
   });
 
   it('returns 400 when command is empty or only whitespace', async () => {
     mockCreateClient.mockResolvedValue(makeAuthenticatedSupabase() as never);
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: '   ' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: '   ' }));
     expect(response.status).toBe(400);
   });
 
@@ -159,7 +191,7 @@ describe('POST /api/ai/command', () => {
       error: undefined,
     });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Add a yellow sticky note' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Add a yellow sticky note' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
@@ -188,7 +220,7 @@ describe('POST /api/ai/command', () => {
       error: 'Object not found on board',
     });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the missing note' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Move the missing note' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
@@ -207,7 +239,7 @@ describe('POST /api/ai/command', () => {
       usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
     } as never);
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Tell me a joke' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Tell me a joke' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
@@ -244,7 +276,7 @@ describe('POST /api/ai/command', () => {
         toolOutputs: [{ toolCallId: 'call-1', tool: 'moveObject', output: { success: true, affectedObjectIds: ['obj-1'] } }],
       });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the note to x 500 y 300' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Move the note to x 500 y 300' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
@@ -295,7 +327,7 @@ describe('POST /api/ai/command', () => {
         toolOutputs: [{ toolCallId: 'call-1', tool: 'moveObject', output: { success: true, affectedObjectIds: ['obj-1'] } }],
       });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move roadmap note to the right' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Move roadmap note to the right' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
@@ -336,7 +368,7 @@ describe('POST /api/ai/command', () => {
         toolOutputs: [],
       });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the first object to x 480 y 260' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Move the first object to x 480 y 260' }));
     expect(response.status).toBe(200);
     expect(mockFinishTrace).toHaveBeenCalledWith(
       mockTraceContext,
@@ -374,7 +406,7 @@ describe('POST /api/ai/command', () => {
         toolOutputs: [],
       });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the sticky note to the right' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Move the sticky note to the right' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
@@ -425,7 +457,7 @@ describe('POST /api/ai/command', () => {
         toolOutputs: [{ toolCallId: 'retry-1', tool: 'moveObject', output: { success: true, affectedObjectIds: ['obj-2'] } }],
       });
 
-    const response = await POST(makeRequest({ boardId: 'board-1', command: 'Move the note to x 500 y 300' }));
+    const response = await POST(makeRequest({ boardId: BOARD_ID, command: 'Move the note to x 500 y 300' }));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);

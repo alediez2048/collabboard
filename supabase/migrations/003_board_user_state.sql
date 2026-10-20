@@ -1,5 +1,5 @@
 -- ============================================================
--- TICKET-18: Board discovery metadata per user
+-- Board discovery metadata per user (starred, last opened)
 -- Run this in Supabase Dashboard > SQL Editor
 -- ============================================================
 

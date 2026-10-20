@@ -33,6 +33,8 @@ import {
 } from '@/lib/ai-agent/tracing';
 import { POST } from '@/app/api/ai/command/route';
 
+const BOARD_ID = 'b0a2d1c4-1111-4111-8111-111111111111';
+
 const mockCreateClient = vi.mocked(createClient);
 const mockExecute = vi.mocked(executeToolCalls);
 const mockTracing = vi.mocked(createTracedCompletion);
@@ -42,7 +44,7 @@ const mockFinishTrace = vi.mocked(finishCommandTrace);
 const traceContext = {
   traceId: 'trace-requirements-1',
   traceName: 'ai-board-command',
-  boardId: 'board-1',
+  boardId: BOARD_ID,
   userId: 'user-123',
   command: 'placeholder',
   startedAtMs: 0,
@@ -55,7 +57,16 @@ interface ToolCallDefinition {
   args: Record<string, unknown>;
 }
 
-function makeAuthenticatedSupabase() {
+function makeBoardQuery(board: { id: string } | null) {
+  const query = {
+    select: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    maybeSingle: vi.fn().mockResolvedValue({ data: board, error: null }),
+  };
+  return query;
+}
+
+function makeAuthenticatedSupabase(board: { id: string } | null = { id: BOARD_ID }) {
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -63,13 +74,14 @@ function makeAuthenticatedSupabase() {
         error: null,
       }),
     },
+    from: vi.fn(() => makeBoardQuery(board)),
   };
 }
 
 function makeRequest(command: string) {
   return new NextRequest('http://localhost/api/ai/command', {
     method: 'POST',
-    body: JSON.stringify({ boardId: 'board-1', command }),
+    body: JSON.stringify({ boardId: BOARD_ID, command }),
     headers: { 'Content-Type': 'application/json' },
   });
 }
