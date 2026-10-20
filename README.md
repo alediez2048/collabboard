@@ -4,8 +4,7 @@ Real-time collaborative whiteboard with an AI command layer.
 Built with Next.js (App Router), Konva, Yjs, Socket.io, Supabase, and OpenAI tooling.
 
 - **Live App:** https://collabboard-gauntlet.vercel.app
-- **GitHub:** https://github.com/alediez2048/Gauntlet-Assignment-1
-- **Demo Video:** _URL intentionally deferred to final project closeout_
+- **GitHub:** https://github.com/alediez2048/collabboard
 
 ---
 
@@ -40,7 +39,7 @@ For detailed contracts, see:
 ### 1) Clone + install frontend deps
 
 ```bash
-git clone https://github.com/alediez2048/Gauntlet-Assignment-1.git
+git clone https://github.com/alediez2048/collabboard.git
 cd Gauntlet-Assignment-1
 npm install
 ```
@@ -120,10 +119,8 @@ npm start --prefix server
 
 ## Documentation Map
 
-- `documentation/requirements/PRD.md` - ticket scope and acceptance criteria
 - `documentation/architecture/system-design.md` - state ownership and sync contracts
 - `documentation/testing/TESTS.md` - test strategy and checklists
-- `documentation/tickets/DEV-LOG.md` - implementation history and validation evidence
 - `documentation/reference/AI-DEVELOPMENT-LOG.md` - AI workflow, prompts, learnings
 - `documentation/reference/AI-COST-ANALYSIS.md` - trace-backed usage and projections
 
