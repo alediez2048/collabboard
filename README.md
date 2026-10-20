@@ -30,7 +30,6 @@ Built with Next.js (App Router), Konva, Yjs, Socket.io, Supabase, and OpenAI too
 
 For detailed contracts, see:
 - `documentation/architecture/system-design.md`
-- `documentation/agents/agents.md`
 
 ---
 
@@ -40,7 +39,7 @@ For detailed contracts, see:
 
 ```bash
 git clone https://github.com/alediez2048/collabboard.git
-cd Gauntlet-Assignment-1
+cd collabboard
 npm install
 ```
 

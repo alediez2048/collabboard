@@ -24,7 +24,7 @@ This pairing worked best when the prompt included strict scope, constraints, and
 - Effective fallback was to prioritize deterministic Playwright/Vitest coverage plus targeted manual verification.
 - Outcome: less time spent debugging the tooling itself, more time spent validating app behavior.
 
-Reference notes were recorded in `documentation/tickets/DEV-LOG.md` (early tickets and testing reflections).
+Reference notes were kept in the sprint's development log (early tickets and testing reflections).
 
 ---
 
