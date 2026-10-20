@@ -37,8 +37,7 @@ yarn-error.log*
 # Supabase local development
 /supabase/*
 !/supabase/migrations/
-/supabase/migrations/*
-!/supabase/migrations/board_user_state.sql
+!/supabase/migrations/*.sql
 
 # Playwright
 /test-results/
