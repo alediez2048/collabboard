@@ -58,7 +58,7 @@ export function createCursorSocket(options: CursorSocketOptions): Socket {
 
 /**
  * Emit a cursor move event
- * Note: In TICKET-05, this will be throttled to 20-30Hz
+ * Note: this can be throttled to 20-30Hz
  */
 export function emitCursorMove(
   socket: Socket,
