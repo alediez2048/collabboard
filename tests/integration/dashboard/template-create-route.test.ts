@@ -98,7 +98,7 @@ function makeSupabaseMock(args: {
   return { client, boardsTable, deleteEqFirst, deleteEqSecond };
 }
 
-function makeServiceClientMock(args?: { upsertError?: QueryError | null }): ReturnType<typeof vi.fn> {
+function makeServiceClientMock(args?: { upsertError?: QueryError | null }): () => { from: ReturnType<typeof vi.fn> } {
   const upsertFn = vi.fn().mockResolvedValue({
     error: args?.upsertError ?? null,
   });

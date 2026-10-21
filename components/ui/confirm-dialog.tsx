@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef } from 'react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -34,8 +34,11 @@ export function ConfirmDialog({
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const onCancelRef = useRef(onCancel);
   const isLoadingRef = useRef(isLoading);
-  onCancelRef.current = onCancel;
-  isLoadingRef.current = isLoading;
+  // Keep the latest callback and loading flag without re-binding listeners.
+  useLayoutEffect(() => {
+    onCancelRef.current = onCancel;
+    isLoadingRef.current = isLoading;
+  });
 
   const stableOnCancel = useCallback(() => {
     onCancelRef.current();

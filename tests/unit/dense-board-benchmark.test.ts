@@ -69,7 +69,9 @@ function runIncrementalBenchmark(objectCount: number, iterations: number): numbe
   return performance.now() - startedAt;
 }
 
-describe('dense-board incremental update benchmark', () => {
+// Wall-clock comparison: meaningful on a quiet machine, noisy on shared CI
+// runners, so it runs locally and is skipped when CI is set.
+describe.skipIf(Boolean(process.env.CI))('dense-board incremental update benchmark', () => {
   [
     { objectCount: 500, iterations: 300 },
     { objectCount: 1000, iterations: 300 },

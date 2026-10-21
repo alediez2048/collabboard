@@ -63,7 +63,7 @@ describe('cursor event filtering', () => {
 
   it('cursor events without sentAt are treated as valid', () => {
     const event = makeCursorEvent('user-a');
-    delete (event as Record<string, unknown>).sentAt;
+    delete (event as unknown as Record<string, unknown>).sentAt;
     expect(event.sentAt).toBeUndefined();
 
     const queue = new Map<string, CursorMoveEvent>();

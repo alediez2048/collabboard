@@ -124,7 +124,6 @@ npm start --prefix server
 
 - `documentation/architecture/system-design.md` - state ownership and sync contracts
 - `documentation/testing/TESTS.md` - test strategy and checklists
-- `documentation/reference/AI-DEVELOPMENT-LOG.md` - AI workflow, prompts, learnings
 - `documentation/reference/AI-COST-ANALYSIS.md` - trace-backed usage and projections
 
 ---
@@ -157,18 +156,13 @@ lib/yjs/                 Yjs provider/bootstrap logic
 server/                  Socket.io + y-websocket realtime server
 stores/                  Local UI-only Zustand store
 tests/                   Unit, integration, and E2E suites
-documentation/           PRD, architecture, testing, tickets, reference docs
+documentation/           Architecture, testing and AI cost notes
 ```
 
 ---
 
-## Notes For Final Submission
+## How it was built
 
-- Add final demo URL + LangSmith dashboard URL + Langfuse dashboard URL in final closeout pass.
-- Cost figures are documented in `documentation/reference/AI-COST-ANALYSIS.md` and should be paired with latest dashboard screenshots before submission.
+Built in a one-week Gauntlet AI sprint (Feb 16-23, 2026), with AI coding assistants used throughout. The sync contracts, board access rules and AI tool layer are covered by the test suite in `tests/`.
 
----
-
-**Built by:** JAD  
-**Sprint:** Feb 16-23, 2026  
-**Assignment:** Gauntlet AI - CollabBoard
+**Built by:** Jorge Alejandro Diez

@@ -1,6 +1,7 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { verifySupabaseToken } from './auth';
+import { canAccessBoard } from './board-access';
 
 interface CursorMoveEvent {
   userId: string;
@@ -68,12 +69,17 @@ export function setupSocketIO(httpServer: HTTPServer): SocketIOServer {
 
   // Connection handler is now fully synchronous — all listeners registered immediately
   io.on('connection', (socket: Socket) => {
-    const user = socket.data.user as { email: string };
+    const user = socket.data.user as { userId: string; email: string };
 
     console.log(`[Socket.io] User ${user.email} connected (${socket.id})`);
 
     // Handle joining a board room
-    socket.on('join-board', (boardId: string) => {
+    socket.on('join-board', async (boardId: string) => {
+      if (typeof boardId !== 'string' || !(await canAccessBoard(user.userId, boardId))) {
+        console.error(`[Socket.io] ${user.email} denied board room: ${boardId}`);
+        socket.emit('join-denied', { boardId });
+        return;
+      }
       socket.join(boardId);
       console.log(`[Socket.io] User ${user.email} joined board room: ${boardId}`);
     });

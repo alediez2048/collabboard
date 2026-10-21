@@ -6,6 +6,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import { IncomingMessage } from 'http';
 import { verifySupabaseToken } from './auth';
+import { canAccessBoard } from './board-access';
 import { loadSnapshot, createDebouncedSave } from './persistence';
 
 // Message types
@@ -89,6 +90,12 @@ export function setupYjsServer(wss: WebSocketServer): void {
       if (!user) {
         console.error('[Yjs] Connection rejected: Invalid token');
         ws.close(1008, 'Invalid authentication token');
+        return;
+      }
+
+      if (!(await canAccessBoard(user.userId, roomName))) {
+        console.error(`[Yjs] Connection rejected: ${user.email} has no access to ${roomName}`);
+        ws.close(1008, 'Access denied');
         return;
       }
 
