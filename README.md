@@ -108,7 +108,7 @@ npm run test:e2e:headed
 npm run test:e2e:debug
 ```
 
-`npm run test:e2e` includes a pretest hook that installs Playwright Chromium if it is missing. On a fresh machine, you can also run `npm run test:e2e:setup` once up front.
+`npm test` runs the Vitest unit and integration suites, which is what CI runs. The Playwright end-to-end suites (`npm run test:e2e`) sign up real users, so they need a Supabase project with email sign-up enabled and aren't run in CI. See `tests/e2e/README.md`.
 
 ### Realtime server (`server/`)
 
@@ -123,7 +123,7 @@ npm start --prefix server
 ## Documentation Map
 
 - `documentation/architecture/system-design.md` - state ownership and sync contracts
-- `documentation/testing/TESTS.md` - test strategy and checklists
+- `documentation/testing/TESTS.md` - what the tests cover, and manual release checks
 - `documentation/reference/AI-COST-ANALYSIS.md` - trace-backed usage and projections
 
 ---

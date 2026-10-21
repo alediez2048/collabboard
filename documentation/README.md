@@ -11,6 +11,6 @@ All documentation is grouped under `documentation/` by purpose:
 ## Quick Links
 
 - `documentation/architecture/system-design.md` - architecture contracts
-- `documentation/testing/TESTS.md` - automated/manual test plan
+- `documentation/testing/TESTS.md` - what the tests cover, and manual release checks
 - `documentation/reference/AI-COST-ANALYSIS.md` - trace-backed cost model and projections
 

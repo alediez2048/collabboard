@@ -1,93 +1,24 @@
-# E2E Tests with Playwright
+# End-to-end tests (Playwright)
 
-## Overview
+Four browser suites that drive the real app:
 
-This directory contains end-to-end tests for the CollabBoard application using Playwright.
+| File | Covers |
+|---|---|
+| `auth.spec.ts` | Redirect when signed out, sign up, sign in, sign out, bad credentials |
+| `board.spec.ts` | Dashboard sections, templates, starring, search, renaming and deleting boards, share links, canvas delete and clear, comment pins, AI move targeting |
+| `share-invite.spec.ts` | An invitee opening a shared board link, signing in, and landing back on that board |
+| `text-tool.spec.ts` | Placing and editing a text object on the canvas |
 
-## Running Tests
+## Running them
 
-On fresh machines, install the Playwright browser first:
+These tests sign up real users, so they need a Supabase project (the same `.env.local` values the app uses) with email sign-up enabled. They are not part of CI for that reason; CI runs the Vitest unit and integration suites.
 
 ```bash
-npm run test:e2e:setup
+npm run test:e2e:setup   # once: installs Chromium for Playwright
+npm run test:e2e         # starts `npm run dev` and runs the suites headless
+npm run test:e2e:ui      # interactive mode
 ```
 
-`npm run test:e2e` also runs this automatically via a pretest hook, so missing-browser errors are self-healed.
+Each test creates its own user with a random email, so runs don't collide. The sign-up flow falls back to an explicit sign-in when the Supabase project doesn't return a session on sign-up.
 
-```bash
-# Run all E2E tests (headless)
-npm run test:e2e
-
-# Run with UI mode (interactive)
-npm run test:e2e:ui
-
-# Run in headed mode (see browser)
-npm run test:e2e:headed
-
-# Debug mode (step through tests)
-npm run test:e2e:debug
-```
-
-## Test Suites
-
-### `auth.spec.ts` - Authentication Flow
-Tests the complete authentication flow including:
-- Unauthenticated redirect to login
-- Signup form toggle
-- User signup with email/password
-- User logout
-- User login after signup
-- Protected route redirects
-- Invalid credentials error handling
-
-### `board.spec.ts` - Board Management
-Tests board CRUD operations including:
-- Empty state display
-- Board creation
-- Board listing
-- Board navigation
-- Board persistence after refresh
-- Multiple boards handling
-- Authentication state across navigation
-
-## Test Results (Initial Run)
-
-- **7 tests** pass reliably
-- **6 tests** are flaky (timing-related, pass on retry)
-- **1 test** failed (timing-related)
-
-Flaky tests are expected in E2E testing due to network latency and async operations. All flaky tests pass on retry, indicating the functionality is correct.
-
-## Known Issues
-
-### Timing Sensitivity
-Some tests are sensitive to signup/login timing. The current implementation:
-- Uses `waitForURL()` with 15s timeout
-- Uses `waitForLoadState('networkidle')` for page load
-- Retries failed tests automatically (configured in playwright.config.ts)
-
-### Future Improvements
-- Add authentication fixtures for faster test execution
-- Implement parallel test execution for independent tests
-- Add visual regression testing
-- Add API mocking for more consistent test timing
-
-## CI/CD Integration
-
-Tests are configured to run automatically in CI with:
-- `forbidOnly: true` - prevents accidentally committed `.only()` tests
-- `retries: 2` - automatic retry on failure
-- `workers: 1` - sequential execution in CI for stability
-- HTML reporter for test results
-
-## Debugging Failed Tests
-
-When a test fails, Playwright automatically captures:
-- **Screenshot** of the failure state
-- **Trace** for replay (`npx playwright show-trace path/to/trace.zip`)
-- **Error context** with detailed logs
-
-View the HTML report:
-```bash
-npx playwright show-report
-```
+When a test fails, Playwright saves a screenshot and a trace; `npx playwright show-report` opens them.
